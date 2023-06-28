@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "cosmos_chain",
+    "main",
+    "utils",
+    "cli"
+]

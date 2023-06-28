@@ -1,0 +1,9 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "./cosmos_chain/Cargo.toml",
+        "./cli/Cargo.toml",
+        "./cli/Cargo.toml",
+        "./cli/Cargo.toml",
+        "./cli/Cargo.toml"
+    ]
+}

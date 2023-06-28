@@ -1,0 +1,6 @@
+/Users/joten/rust_projects/TxWarpper_test/target/debug/deps/destructure_traitobject-7f4dcd492d569661.rmeta: /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/destructure_traitobject-0.2.0/src/lib.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/destructure_traitobject-0.2.0/src/impls.rs
+
+/Users/joten/rust_projects/TxWarpper_test/target/debug/deps/destructure_traitobject-7f4dcd492d569661.d: /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/destructure_traitobject-0.2.0/src/lib.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/destructure_traitobject-0.2.0/src/impls.rs
+
+/Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/destructure_traitobject-0.2.0/src/lib.rs:
+/Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/destructure_traitobject-0.2.0/src/impls.rs:
