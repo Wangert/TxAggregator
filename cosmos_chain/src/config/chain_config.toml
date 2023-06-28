@@ -1,0 +1,10 @@
+# grpc address
+grpc_addr = "10.177.40.71"
+# tendermint rpc address
+tendermint_rpc_addr = "10.111.12.45"
+
+# [execution]
+# performance_duration = 15000
+# performance_internal = 2000
+# crash_duration = 30000
+# malicious_duration = 20000
