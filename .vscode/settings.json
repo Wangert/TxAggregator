@@ -4,6 +4,8 @@
         "./cli/Cargo.toml",
         "./cli/Cargo.toml",
         "./cli/Cargo.toml",
-        "./cli/Cargo.toml"
+        "./cli/Cargo.toml",
+        "./cosmos_chain/Cargo.toml",
+        "./cosmos_chain/Cargo.toml"
     ]
 }

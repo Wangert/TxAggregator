@@ -1,0 +1,11 @@
+/Users/joten/rust_projects/TxAggregator/target/debug/deps/tokio_rustls-add9e7e4472c3909.rmeta: /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/lib.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/client.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/common/mod.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/common/handshake.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/server.rs
+
+/Users/joten/rust_projects/TxAggregator/target/debug/deps/libtokio_rustls-add9e7e4472c3909.rlib: /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/lib.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/client.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/common/mod.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/common/handshake.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/server.rs
+
+/Users/joten/rust_projects/TxAggregator/target/debug/deps/tokio_rustls-add9e7e4472c3909.d: /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/lib.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/client.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/common/mod.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/common/handshake.rs /Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/server.rs
+
+/Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/lib.rs:
+/Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/client.rs:
+/Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/common/mod.rs:
+/Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/common/handshake.rs:
+/Users/joten/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-rustls-0.23.4/src/server.rs:

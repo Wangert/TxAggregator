@@ -1,9 +1,17 @@
 use serde::{Serialize, Deserialize};
+use utils::file::toml_file;
+
+use crate::error::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CosmosChainConfig {
     pub grpc_addr: String,
     pub tendermint_rpc_addr: String
+}
+
+pub fn load_cosmos_chain_config(path: &str) -> Result<CosmosChainConfig, Error> {
+    let config: CosmosChainConfig = toml_file::toml_file_read(path).map_err(|e| Error::load_cosmos_chain_conifg(e))?;
+    Ok(config)
 }
 
 pub mod default {

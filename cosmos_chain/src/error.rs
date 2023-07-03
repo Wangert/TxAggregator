@@ -1,6 +1,9 @@
 use flex_error::{define_error, TraceError};
 use tonic::{transport::Error as TransportError, Status as GrpcStatus};
 use prost::{DecodeError, EncodeError};
+use std::io::Error as IOError;
+use utils::error::Error as UtilsError;
+use tendermint_rpc::error::Error as TrpcError;
 
 define_error! {
     Error {
@@ -24,8 +27,21 @@ define_error! {
             |e| { format!("error encoding protocol buffer for {}", e.payload_type) },
         EmptyBaseAccount
             |_| { "empty BaseAccount within EthAccount" },
+        NoAccounts
+            |_| { "No accounts" },
         UnknownAccountType
             { type_url: String }
-            |e| { format!("failed to deserialize account of an unknown protobuf type: {0}", e.type_url) }
+            |e| { format!("failed to deserialize account of an unknown protobuf type: {0}", e.type_url) },
+        LoadCosmosChainConifg
+            [ TraceError<UtilsError> ]
+            |_| { "Load cosmos chain config error" },
+        EmptyGrpcClient
+            |_| { "empty cosmos grpc client" },
+        EmptyTendermintRpcClient
+            |_| { "empty cosmos tendermint rpc client" },
+
+        AbciInfo
+            [ TraceError<TrpcError> ]
+            |_| { "query abci information error" },
     }
 }
