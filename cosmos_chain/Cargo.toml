@@ -15,12 +15,24 @@ flex-error = "0.4.4"
 byte-unit = { version = "4.0.19", default-features = false, features = ["serde"] }
 prost = "0.11.9"
 serde = { version = "1.0.164", features = ["derive"] }
+serde_json = "1.0.100"
 log = "0.4.19"
 env_logger = "0.10.0"
 tendermint = "0.32.0"
+subtle-encoding = "0.5.1"
+bitcoin = "0.30.0"
+hdpath = "0.6.3"
+tiny-bip39 = "1.0.0"
+anyhow = "1.0.71"
+strum = "0.25.0"
+
+tracing = "0.1.37"
 
 actix-rt = "2.8.0"
 
 [dependencies.tendermint-rpc]
 version = "0.32.0"
 features = ["http-client", "websocket-client"]
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3.17", features = ["std", "env-filter", "fmt", "json"] }

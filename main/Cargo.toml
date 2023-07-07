@@ -13,3 +13,8 @@ tokio = { version = "1.28.2", features = ["rt-multi-thread", "time", "sync"] }
 http = "0.2.9"
 log = "0.4.19"
 env_logger = "0.10.0"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["std", "env-filter", "fmt", "json"] }
+
+# [dev-dependencies]
+# tracing-subscriber = { version = "0.3.17", features = ["std", "env-filter", "fmt", "json"] }

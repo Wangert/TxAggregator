@@ -1,9 +1,11 @@
-use flex_error::{define_error, TraceError};
+use flex_error::{define_error, TraceError, DisplayOnly};
 use tonic::{transport::Error as TransportError, Status as GrpcStatus};
 use prost::{DecodeError, EncodeError};
 use std::io::Error as IOError;
-use utils::error::Error as UtilsError;
+use utils::file::error::FileError;
 use tendermint_rpc::error::Error as TrpcError;
+use serde_json::Error as SerdeJsonError;
+use utils::encode::error::EncodeError as UtilsEncodeError;
 
 define_error! {
     Error {
@@ -33,7 +35,7 @@ define_error! {
             { type_url: String }
             |e| { format!("failed to deserialize account of an unknown protobuf type: {0}", e.type_url) },
         LoadCosmosChainConifg
-            [ TraceError<UtilsError> ]
+            [ TraceError<FileError> ]
             |_| { "Load cosmos chain config error" },
         EmptyGrpcClient
             |_| { "empty cosmos grpc client" },
@@ -43,5 +45,34 @@ define_error! {
         AbciInfo
             [ TraceError<TrpcError> ]
             |_| { "query abci information error" },
+        LatestBlock
+            [ TraceError<TrpcError> ]
+            |_| { "query latest block error" },
+        LatestBlockResults
+            [ TraceError<TrpcError> ]
+            |_| { "query latest block results error" },
+
+        // keyring error
+        EncodedPublicKey
+            [ TraceError<SerdeJsonError> ]
+            |_| { "encode public key error" },
+        ReadCosmosKey
+            [ TraceError<FileError> ]
+            |_| { "read cosmos key error" },
+        AddressBech32Decode
+            { address: String }
+            [ TraceError<UtilsEncodeError> ]
+            |e| { format!("address {} bech32 decode error", e.address) },
+        AddressBech32Encode
+            { address_bytes: Vec<u8> }
+            [ TraceError<UtilsEncodeError> ]
+            |e| { format!("address {:?} bech32 encode error", e.address_bytes) },
+        InvalidMnemonic
+            [ DisplayOnly<anyhow::Error> ]
+            |_| { "invalid mnemonic" },
+        Bip32KeyGenerationFailed
+            { key_type: String }
+            [ TraceError<anyhow::Error> ]
+            |e| { format!("cannot generate {} private key from BIP-32 seed", e.key_type) },
     }
 }

@@ -11,6 +11,8 @@ use cli::{client::Client, cmd::rootcmd::CMD};
 use cosmos_chain::{query::grpc::account::query_detail_account, chain::CosmosChain};
 use log::info;
 use tokio::sync::mpsc;
+use tracing::{info_span, metadata::LevelFilter};
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -28,10 +30,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // println!("{:?}", base_account);
 
-    env_logger::init();
+    // env_logger::init();
     
+    tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).init();
+    
+    // let span = info_span!("main");
     let file_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
     let mut cosmos_chain = CosmosChain::new(file_path);
+
+    // let _span = span.enter();
 
     cosmos_chain.grpc_connect().await;
     cosmos_chain.tendermint_rpc_connect();
@@ -45,8 +52,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Query all accounts: {:?}", accounts);
 
     let abci_info = cosmos_chain.query_abci_info().await?;
-
     info!("Query abci info: {:?}", abci_info);
+
+    let latest_block = cosmos_chain.query_latest_block().await?;
+    info!("Latest block: {:?}", latest_block);
+
+    let latest_block_results = cosmos_chain.query_latest_block_results().await?;
+    info!("Latest block: {:?}", latest_block_results);
 
     Ok(())
 }

@@ -7,6 +7,7 @@ use prost::Message;
 use tonic::{codegen::ok, transport::Channel};
 
 use crate::{config::default::max_grpc_decoding_size, error::Error};
+use tracing::info as tracing_info;
 
 pub async fn query_detail_account(
     grpc_client: &mut QueryClient<Channel>,
@@ -49,9 +50,11 @@ pub async fn query_detail_account(
     }
 }
 
+#[tracing::instrument]
 pub async fn query_all_account(
     grpc_client: &mut QueryClient<Channel>,
 ) -> Result<Vec<BaseAccount>, Error> {
+    tracing_info!("query all account access");
     let request_all = tonic::Request::new(QueryAccountsRequest { pagination: None });
     let reponse = grpc_client.accounts(request_all).await;
 
