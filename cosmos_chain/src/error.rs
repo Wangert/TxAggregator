@@ -6,6 +6,7 @@ use utils::file::error::FileError;
 use tendermint_rpc::error::Error as TrpcError;
 use serde_json::Error as SerdeJsonError;
 use utils::encode::error::EncodeError as UtilsEncodeError;
+use crate::tx::types::MEMO_MAX_LEN;
 
 define_error! {
     Error {
@@ -18,7 +19,10 @@ define_error! {
         GrpcTransport
             [ TraceError<TransportError> ]
             |_| { "error in underlying transport when making gRPC call" },
-        
+        Trpc
+            { payload_type: String }
+            [ TraceError<TrpcError> ]
+            |e| { format!("tendermint rpc error: {}", e.payload_type) },
         ProtobufDecode
             { payload_type: String }
             [ TraceError<DecodeError> ]
@@ -74,5 +78,47 @@ define_error! {
             { key_type: String }
             [ TraceError<anyhow::Error> ]
             |e| { format!("cannot generate {} private key from BIP-32 seed", e.key_type) },
+        UtilsProtobufEncode
+            { payload_type: String }
+            [ TraceError<UtilsEncodeError> ]
+            |e| { format!("error encoding protocol buffer for {}", e.payload_type) },
+        
+        // account
+        HdPath
+            { hd_path: String }
+            |e| {format!("invalid derivation path: {}", e.hd_path) },
+        PublicKeyMismatch
+            { cosmos_key_pk: String, mnemonic: String }
+            |e| { format!("mismatch between the public key {:?} in the cosmos key and the public key in the mnemonic {:?}",  e.cosmos_key_pk, e.mnemonic) },
+        EmptyKeyPair
+            |_| { "empty key pair" },
+
+        // estimate
+        TxProtobufEncode
+            [ TraceError<UtilsEncodeError> ]
+            |_| { "tx protobuf encode error" },
+        SimulateTxGas
+            |_| { "tx simulation no gas amount used was retured" },
+        TxSign
+            |e| { "tx signature error" }
+    }
+}
+
+flex_error::define_error! {
+    MemoError {
+        TooLong
+            { length: usize }
+            |e| {
+                format_args!("`memo` must been no longer than {} characters, found length {}",
+                    MEMO_MAX_LEN, e.length)
+            }
+    }
+}
+
+define_error! {
+    #[derive(Debug, PartialEq, Eq)]
+    SignerError {
+        EmptySigner
+            | _ | { "signer cannot be empty" },
     }
 }

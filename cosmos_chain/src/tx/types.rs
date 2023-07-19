@@ -1,0 +1,242 @@
+use std::fmt::{Display, Formatter, Error as FmtError};
+
+use ibc_proto::cosmos::{auth::v1beta1::BaseAccount, tx::v1beta1::Fee};
+use serde::{Deserialize, Serialize, Deserializer, Serializer, de::Error as _};
+
+use crate::{config::CosmosChainConfig, error::{Error, ErrorDetail, MemoError, MemoErrorDetail}};
+
+use super::estimate::calculate_fee;
+
+/// Default gas limit when submitting a transaction.
+const DEFAULT_MAX_GAS: u64 = 400_000;
+
+const DEFAULT_FEE_GRANTER: &str = "";
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GasPrice {
+    pub price: f64,
+    pub denom: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GasConfig {
+    pub default_gas: u64,
+    pub max_gas: u64,
+    pub gas_multiplier: f64,
+    pub gas_price: GasPrice,
+    pub max_fee: Fee,
+    pub fee_granter: String,
+}
+
+impl<'a> From<&'a CosmosChainConfig> for GasConfig {
+    fn from(config: &'a CosmosChainConfig) -> Self {
+        Self {
+            default_gas: default_gas_from_config(config),
+            max_gas: max_gas_from_config(config),
+            gas_multiplier: gas_multiplier_from_config(config),
+            gas_price: config.gas_price.clone(),
+            max_fee: max_fee_from_config(config),
+            fee_granter: fee_granter_from_config(config),
+        }
+    }
+}
+
+/// The default amount of gas the relayer is willing to pay for a transaction,
+/// when it cannot simulate the tx and therefore estimate the gas amount needed.
+pub fn default_gas_from_config(config: &CosmosChainConfig) -> u64 {
+    config
+        .default_gas
+        .unwrap_or_else(|| max_gas_from_config(config))
+}
+
+/// The maximum amount of gas the relayer is willing to pay for a transaction
+pub fn max_gas_from_config(config: &CosmosChainConfig) -> u64 {
+    config.max_gas.unwrap_or(DEFAULT_MAX_GAS)
+}
+
+/// The gas multiplier
+pub fn gas_multiplier_from_config(config: &CosmosChainConfig) -> f64 {
+    config.gas_multiplier.unwrap_or_default()
+}
+
+/// Get the fee granter address
+fn fee_granter_from_config(config: &CosmosChainConfig) -> String {
+    config
+        .fee_granter
+        .as_deref()
+        .unwrap_or(DEFAULT_FEE_GRANTER)
+        .to_string()
+}
+
+fn max_fee_from_config(config: &CosmosChainConfig) -> Fee {
+    let max_gas = max_gas_from_config(config);
+
+    // The maximum fee the relayer pays for a transaction
+    let max_fee_in_coins = calculate_fee(max_gas, &config.gas_price);
+
+    let fee_granter = fee_granter_from_config(config);
+
+    Fee {
+        amount: vec![max_fee_in_coins],
+        gas_limit: max_gas,
+        payer: "".to_string(),
+        granter: fee_granter,
+    }
+}
+
+pub const MEMO_MAX_LEN: usize = 50;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Memo(String);
+
+impl Memo {
+    pub fn new(memo: impl Into<String>) -> Result<Self, MemoError> {
+        let memo = memo.into();
+        if memo.len() > MEMO_MAX_LEN {
+            return Err(MemoError::too_long(memo.len()));
+        }
+
+        Ok(Self(memo))
+    }
+
+    pub fn apply_suffix(&mut self, suffix: &str) {
+        // Add a separator if the memo
+        // is pre-populated with some content already.
+        if !self.0.is_empty() {
+            self.0.push_str(" | ");
+        }
+
+        self.0.push_str(suffix);
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for Memo {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+
+        Memo::new(value).map_err(|e| match e.detail() {
+            MemoErrorDetail::TooLong(sub) => D::Error::invalid_length(
+                sub.length,
+                &format!("a string length of at most {}", MEMO_MAX_LEN).as_str(),
+            ),
+        })
+    }
+}
+
+impl Serialize for Memo {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl Display for Memo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Wrapper for account number and sequence number.
+///
+/// More fields may be added later.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Account {
+    pub address: AccountAddress,
+    pub number: AccountNumber,
+    pub sequence: AccountSequence,
+    // pub pub_key: Option<prost_types::Any>,
+}
+
+impl From<BaseAccount> for Account {
+    fn from(value: BaseAccount) -> Self {
+        Self {
+            address: AccountAddress::new(value.address),
+            number: AccountNumber::new(value.account_number),
+            sequence: AccountSequence::new(value.sequence),
+        }
+    }
+}
+
+/// Newtype for account address
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AccountAddress(String);
+
+impl AccountAddress {
+    pub fn new(string: String) -> Self {
+        Self(string)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl Display for AccountAddress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Newtype for account numbers
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AccountNumber(u64);
+
+impl AccountNumber {
+    pub fn new(number: u64) -> Self {
+        Self(number)
+    }
+
+    pub fn to_u64(self) -> u64 {
+        self.0
+    }
+}
+
+impl Display for AccountNumber {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Newtype for account sequence numbers
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AccountSequence(u64);
+
+impl AccountSequence {
+    pub fn new(sequence: u64) -> Self {
+        Self(sequence)
+    }
+
+    pub fn to_u64(self) -> u64 {
+        self.0
+    }
+
+    pub fn increment(self) -> Self {
+        Self(self.0 + 1)
+    }
+
+    pub fn increment_mut(&mut self) {
+        self.0 += 1
+    }
+}
+
+impl Display for AccountSequence {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        write!(f, "{}", self.0)
+    }
+}
+
+
+

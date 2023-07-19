@@ -1,12 +1,25 @@
 use serde::{Serialize, Deserialize};
 use utils::file::toml_file;
 
-use crate::error::Error;
+use crate::{error::Error, tx::types::GasPrice};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CosmosChainConfig {
+    pub chain_id: String,
     pub grpc_addr: String,
-    pub tendermint_rpc_addr: String
+    pub tendermint_rpc_addr: String,
+    pub blockchain_api_addr: String,
+    pub chain_a_key_path: String,
+    pub chain_b_key_path: String,
+    pub hd_path: String,
+
+
+    pub default_gas: Option<u64>,
+    pub max_gas: Option<u64>,
+    pub gas_multiplier: Option<f64>,
+    pub fee_granter: Option<String>,
+    pub gas_price: GasPrice,
+
 }
 
 pub fn load_cosmos_chain_config(path: &str) -> Result<CosmosChainConfig, Error> {
