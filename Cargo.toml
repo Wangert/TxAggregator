@@ -3,5 +3,6 @@ members = [
     "cosmos_chain",
     "main",
     "utils",
-    "cli"
+    "cli",
+    "types"
 ]

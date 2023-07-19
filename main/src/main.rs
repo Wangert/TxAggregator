@@ -8,9 +8,11 @@ use std::error::Error;
 use http::Uri;
 
 use cli::{client::Client, cmd::rootcmd::CMD};
-use cosmos_chain::{query::grpc::account::query_detail_account, chain::CosmosChain};
+use cosmos_chain::{query::grpc::account::query_detail_account, chain::CosmosChain, account::Secp256k1Account};
 use log::info;
 use tokio::sync::mpsc;
+use tracing::{info_span, metadata::LevelFilter};
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -28,25 +30,38 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // println!("{:?}", base_account);
 
-    env_logger::init();
+    // env_logger::init();
     
+    tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).init();
+    
+    // let span = info_span!("main");
     let file_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
     let mut cosmos_chain = CosmosChain::new(file_path);
 
-    cosmos_chain.grpc_connect().await;
-    cosmos_chain.tendermint_rpc_connect();
+    let account = Secp256k1Account::new(&cosmos_chain.config.chain_a_key_path, &cosmos_chain.config.hd_path)?;
 
-    // let account_adrr = "cosmos1w4e4v6rk8mmj49yzadwslvg6fs968uz4qvssfq";
-    // let base_account = cosmos_chain.query_detail_account_by_address(account_adrr).await?;
+    
+    // let _span = span.enter();
 
-    // info!("Query detail account info: {:?}", base_account);
+    // cosmos_chain.grpc_connect().await;
+    // cosmos_chain.tendermint_rpc_connect();
 
-    let accounts = cosmos_chain.query_all_accounts().await?;
-    info!("Query all accounts: {:?}", accounts);
+    // // let account_adrr = "cosmos1w4e4v6rk8mmj49yzadwslvg6fs968uz4qvssfq";
+    // // let base_account = cosmos_chain.query_detail_account_by_address(account_adrr).await?;
 
-    let abci_info = cosmos_chain.query_abci_info().await?;
+    // // info!("Query detail account info: {:?}", base_account);
 
-    info!("Query abci info: {:?}", abci_info);
+    // let accounts = cosmos_chain.query_all_accounts().await?;
+    // info!("Query all accounts: {:?}", accounts);
+
+    // let abci_info = cosmos_chain.query_abci_info().await?;
+    // info!("Query abci info: {:?}", abci_info);
+
+    // let latest_block = cosmos_chain.query_latest_block().await?;
+    // info!("Latest block: {:?}", latest_block);
+
+    // let latest_block_results = cosmos_chain.query_latest_block_results().await?;
+    // info!("Latest block: {:?}", latest_block_results);
 
     Ok(())
 }

@@ -7,11 +7,12 @@ use prost::Message;
 use tendermint::abci::response::Info;
 use tendermint_rpc::{Client, HttpClient};
 use tonic::transport::Channel;
+use tracing::{info as tracing_info, info_span};
 
 use crate::{
     config::{default::max_grpc_decoding_size, load_cosmos_chain_config, CosmosChainConfig},
     error::Error,
-    query::grpc::{self, account::query_detail_account},
+    query::{grpc::{self, account::query_detail_account}, types::{Block, BlockResults}},
     query::trpc,
 };
 
@@ -46,6 +47,7 @@ impl CosmosChain {
 
     pub fn tendermint_rpc_connect(&mut self) {
         trace!("tendermint rpc connect");
+        tracing_info!("tendermint rpc connect access");
 
         let client = match HttpClient::new(self.config.tendermint_rpc_addr.as_str()) {
             Ok(client) => client,
@@ -66,7 +68,7 @@ impl CosmosChain {
 
     pub async fn grpc_connect(&mut self) {
         trace!("grpc connect");
-
+        tracing_info!("grpc_connect access");
         let grpc_addr = self
             .config
             .grpc_addr
@@ -95,10 +97,28 @@ impl CosmosChain {
     }
 
     pub async fn query_all_accounts(&mut self) -> Result<Vec<BaseAccount>, Error> {
+        // let span = info_span!("query_all_accounts");
+        // let _span = span.enter();
+
         let grpc_client = self.grpc_client().ok_or_else(Error::empty_grpc_client)?;
         trace!("query all accounts");
+        tracing_info!("query all accounts access");
 
         grpc::account::query_all_account(grpc_client).await
+    }
+
+    pub async fn query_latest_block(&mut self) -> Result<Block, Error> {
+        let trpc = self.tendermint_rpc_client().ok_or_else(Error::empty_tendermint_rpc_client)?;
+        trace!("query latest block");
+
+        trpc::block::latest_block(trpc).await
+    }
+
+    pub async fn query_latest_block_results(&mut self) -> Result<BlockResults, Error> {
+        let trpc = self.tendermint_rpc_client().ok_or_else(Error::empty_tendermint_rpc_client)?;
+        trace!("query latest block results");
+
+        trpc::block::latest_block_results(trpc).await
     }
 }
 

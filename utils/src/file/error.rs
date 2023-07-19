@@ -3,7 +3,7 @@ use std::io::Error as IOError;
 use toml::de::Error as TomlDeError;
 
 define_error! {
-    Error {
+    FileError {
         EmptyQueryAccount
             { address: String }
             |e| { format!("Query/Account RPC returned an empty account for address: {}", e.address) },
