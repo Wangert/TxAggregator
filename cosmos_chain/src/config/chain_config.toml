@@ -16,11 +16,24 @@ chain_b_key_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/con
 
 hd_path = "m/44'/118'/0'/0/0"
 
-default_gas = 100
-max_gas = 100
-gas_multiplier = 100.0
-fee_granter = "test"
+default_gas = 100000
+max_gas = 400000
+gas_multiplier = 1.1
+fee_granter = ""
+
+memo_prefix = ""
+
+# Set clock dirft time (s)
+clock_drift = 5
+max_block_time = 30
+
+# Set trusting period time (day)
+trusting_period = 14
+
+[trust_threshold]
+numerator = 1
+denominator = 3
 
 [gas_price]
-price = 100.0
-denom = "test_denom"
+price = 0.001
+denom = "stake"

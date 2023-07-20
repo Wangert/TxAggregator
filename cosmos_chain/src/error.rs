@@ -100,7 +100,7 @@ define_error! {
         SimulateTxGas
             |_| { "tx simulation no gas amount used was retured" },
         TxSign
-            |e| { "tx signature error" }
+            |_| { "tx signature error" }
     }
 }
 

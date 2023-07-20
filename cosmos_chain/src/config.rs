@@ -20,6 +20,19 @@ pub struct CosmosChainConfig {
     pub fee_granter: Option<String>,
     pub gas_price: GasPrice,
 
+    pub clock_drift: u64,
+    pub max_block_time: u64,
+    pub trusting_period: u64,
+    pub trust_threshold: TrustThreshold,
+
+    pub memo_prefix: String,
+
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustThreshold {
+    pub numerator: u64,
+    pub denominator: u64,
 }
 
 pub fn load_cosmos_chain_config(path: &str) -> Result<CosmosChainConfig, Error> {

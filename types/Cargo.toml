@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 flex-error = "0.4.4"
+ibc-proto = "0.32.0"
