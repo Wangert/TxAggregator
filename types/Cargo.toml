@@ -8,3 +8,12 @@ edition = "2021"
 [dependencies]
 flex-error = "0.4.4"
 ibc-proto = "0.32.0"
+tendermint-proto = "0.32.0"
+ibc = "0.42.0"
+ics23 = "0.10.1"
+tendermint = "0.32.0"
+num-rational = "0.4.1"
+serde = { version = "1.0.164", features = ["derive"] }
+safe-regex = "0.2.5"
+prost = "0.11.9"
+bytes = "1.4.0"
