@@ -7,7 +7,7 @@ use tendermint::trust_threshold::TrustThresholdFraction;
 
 use crate::error::TypesError;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TrustLevel(Ratio<u64>);
 
 impl TrustLevel {

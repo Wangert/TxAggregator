@@ -1,6 +1,9 @@
 use http::Uri;
-use ibc_proto::cosmos::auth::v1beta1::{
-    query_client::QueryClient, BaseAccount, EthAccount, QueryAccountRequest,
+use ibc_proto::cosmos::{
+    auth::v1beta1::{
+        query_client::QueryClient as AuthQueryClient, BaseAccount, EthAccount, QueryAccountRequest,
+    },
+    staking::v1beta1::{query_client::QueryClient as StakingQueryClient, Params as StakingParams},
 };
 use log::{error, info, trace};
 use prost::Message;
@@ -12,13 +15,17 @@ use tracing::{info as tracing_info, info_span};
 use crate::{
     config::{default::max_grpc_decoding_size, load_cosmos_chain_config, CosmosChainConfig},
     error::Error,
-    query::{grpc::{self, account::query_detail_account}, types::{Block, BlockResults}},
     query::trpc,
+    query::{
+        grpc::{self, account::query_detail_account},
+        types::{Block, BlockResults},
+    },
 };
 
 pub struct CosmosChain {
     pub config: CosmosChainConfig,
-    grpc_client: Option<QueryClient<Channel>>,
+    grpc_auth_client: Option<AuthQueryClient<Channel>>,
+    grpc_staking_client: Option<StakingQueryClient<Channel>>,
     tendermint_rpc: Option<HttpClient>,
 }
 
@@ -32,7 +39,8 @@ impl CosmosChain {
 
         CosmosChain {
             config: config,
-            grpc_client: None,
+            grpc_auth_client: None,
+            grpc_staking_client: None,
             tendermint_rpc: None,
         }
     }
@@ -41,8 +49,12 @@ impl CosmosChain {
         self.tendermint_rpc.as_mut()
     }
 
-    pub fn grpc_client(&mut self) -> Option<&mut QueryClient<Channel>> {
-        self.grpc_client.as_mut()
+    pub fn grpc_auth_client(&mut self) -> Option<&mut AuthQueryClient<Channel>> {
+        self.grpc_auth_client.as_mut()
+    }
+
+    pub fn grpc_staking_client(&mut self) -> Option<&mut StakingQueryClient<Channel>> {
+        self.grpc_staking_client.as_mut()
     }
 
     pub fn tendermint_rpc_connect(&mut self) {
@@ -75,13 +87,21 @@ impl CosmosChain {
             .as_str()
             .parse::<Uri>()
             .expect("grpc address parse error!");
-        let mut client = match QueryClient::connect(grpc_addr).await {
+        let mut auth_client = match AuthQueryClient::connect(grpc_addr.clone()).await {
             Ok(client) => client,
-            Err(e) => panic!("grpc connect error: {:?}", e),
+            Err(e) => panic!("grpc auth client connect error: {:?}", e),
+        };
+        let mut staking_client = match StakingQueryClient::connect(grpc_addr).await {
+            Ok(client) => client,
+            Err(e) => panic!("grpc staking client connect error: {:?}", e),
         };
 
-        client = client.max_decoding_message_size(max_grpc_decoding_size().get_bytes() as usize);
-        self.grpc_client = Some(client);
+        auth_client =
+            auth_client.max_decoding_message_size(max_grpc_decoding_size().get_bytes() as usize);
+        staking_client =
+            staking_client.max_decoding_message_size(max_grpc_decoding_size().get_bytes() as usize);
+        self.grpc_auth_client = Some(auth_client);
+        self.grpc_staking_client = Some(staking_client);
 
         info!("grpc connect success");
     }
@@ -90,7 +110,9 @@ impl CosmosChain {
         &mut self,
         account_addr: &str,
     ) -> Result<BaseAccount, Error> {
-        let grpc_client = self.grpc_client().ok_or_else(Error::empty_grpc_client)?;
+        let grpc_client = self
+            .grpc_auth_client()
+            .ok_or_else(|| Error::empty_grpc_client("auth client".to_string()))?;
         trace!("query detail account by address");
 
         grpc::account::query_detail_account(grpc_client, account_addr).await
@@ -100,22 +122,37 @@ impl CosmosChain {
         // let span = info_span!("query_all_accounts");
         // let _span = span.enter();
 
-        let grpc_client = self.grpc_client().ok_or_else(Error::empty_grpc_client)?;
+        let grpc_client = self
+            .grpc_auth_client()
+            .ok_or_else(|| Error::empty_grpc_client("auth client".to_string()))?;
         trace!("query all accounts");
         tracing_info!("query all accounts access");
 
         grpc::account::query_all_account(grpc_client).await
     }
 
+    pub async fn query_staking_params(&mut self) -> Result<StakingParams, Error> {
+        let grpc_client = self
+            .grpc_staking_client()
+            .ok_or_else(|| Error::empty_grpc_client("staking client".to_string()))?;
+        trace!("query staking params");
+
+        grpc::staking::query_staking_params(grpc_client).await
+    }
+
     pub async fn query_latest_block(&mut self) -> Result<Block, Error> {
-        let trpc = self.tendermint_rpc_client().ok_or_else(Error::empty_tendermint_rpc_client)?;
+        let trpc = self
+            .tendermint_rpc_client()
+            .ok_or_else(Error::empty_tendermint_rpc_client)?;
         trace!("query latest block");
 
         trpc::block::latest_block(trpc).await
     }
 
     pub async fn query_latest_block_results(&mut self) -> Result<BlockResults, Error> {
-        let trpc = self.tendermint_rpc_client().ok_or_else(Error::empty_tendermint_rpc_client)?;
+        let trpc = self
+            .tendermint_rpc_client()
+            .ok_or_else(Error::empty_tendermint_rpc_client)?;
         trace!("query latest block results");
 
         trpc::block::latest_block_results(trpc).await
@@ -140,5 +177,19 @@ pub mod chain_tests {
         let mut cosmos_chain = CosmosChain::new(file_path);
 
         cosmos_chain.grpc_connect().await;
+    }
+ 
+    #[actix_rt::test]
+    pub async fn query_staking_params_works() {
+        init();
+        let file_path =
+            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let mut cosmos_chain = CosmosChain::new(file_path);
+
+        cosmos_chain.grpc_connect().await;
+
+        let staking_params = cosmos_chain.query_staking_params().await.expect("query_staking_params error!");
+
+        println!("staking params: {:?}", staking_params);
     }
 }

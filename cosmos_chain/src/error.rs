@@ -1,6 +1,7 @@
 use flex_error::{define_error, TraceError, DisplayOnly};
 use tonic::{transport::Error as TransportError, Status as GrpcStatus};
 use prost::{DecodeError, EncodeError};
+use types::error::TypesError;
 use std::io::Error as IOError;
 use utils::file::error::FileError;
 use tendermint_rpc::error::Error as TrpcError;
@@ -19,6 +20,9 @@ define_error! {
         GrpcTransport
             [ TraceError<TransportError> ]
             |_| { "error in underlying transport when making gRPC call" },
+        CosmosParams
+            { payload_type: String }
+            |e| { format!("query cosmos params error: {}", e.payload_type) },
         Trpc
             { payload_type: String }
             [ TraceError<TrpcError> ]
@@ -42,7 +46,8 @@ define_error! {
             [ TraceError<FileError> ]
             |_| { "Load cosmos chain config error" },
         EmptyGrpcClient
-            |_| { "empty cosmos grpc client" },
+            { payload_type: String }
+            |e| { format!("empty cosmos grpc client: {}", e.payload_type) },
         EmptyTendermintRpcClient
             |_| { "empty cosmos tendermint rpc client" },
 
@@ -55,7 +60,14 @@ define_error! {
         LatestBlockResults
             [ TraceError<TrpcError> ]
             |_| { "query latest block results error" },
-
+        BlockHeight
+            { payload_type: String }
+            [ TraceError<TypesError> ]
+            |e| { format!("block height error: {}", e.payload_type) },
+        ClientState
+            { payload_type: String }
+            [ TraceError<TypesError> ]
+            |e| { format!("client state error: {}", e.payload_type) },
         // keyring error
         EncodedPublicKey
             [ TraceError<SerdeJsonError> ]

@@ -125,7 +125,7 @@ impl TryFrom<TmClientState> for ClientState {
                 trust_level_fraction.try_into()?
             };
 
-        // In `RawClientState`, a `frozen_height` of `0` means "not frozen".
+        // In `ClientState`, a `frozen_height` of `0` means "not frozen".
         // See:
         // https://github.com/cosmos/ibc-go/blob/8422d0c4c35ef970539466c5bdec1cd27369bab3/modules/light-clients/07-tendermint/types/client_state.go#L74
         let frozen_height = tm_client_state

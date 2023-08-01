@@ -1,6 +1,6 @@
 use http::Uri;
 use ibc_proto::cosmos::auth::v1beta1::{
-    query_client::QueryClient, BaseAccount, EthAccount, QueryAccountRequest, QueryAccountsRequest,
+    query_client::QueryClient as AuthQueryClient, BaseAccount, EthAccount, QueryAccountRequest, QueryAccountsRequest,
 };
 use log::info;
 use prost::Message;
@@ -10,7 +10,7 @@ use crate::{config::default::max_grpc_decoding_size, error::Error};
 use tracing::info as tracing_info;
 
 pub async fn query_detail_account(
-    grpc_client: &mut QueryClient<Channel>,
+    grpc_client: &mut AuthQueryClient<Channel>,
     account_address: &str,
 ) -> Result<BaseAccount, Error> {
     let request = tonic::Request::new(QueryAccountRequest {
@@ -52,7 +52,7 @@ pub async fn query_detail_account(
 
 #[tracing::instrument]
 pub async fn query_all_account(
-    grpc_client: &mut QueryClient<Channel>,
+    grpc_client: &mut AuthQueryClient<Channel>,
 ) -> Result<Vec<BaseAccount>, Error> {
     tracing_info!("query all account access");
     let request_all = tonic::Request::new(QueryAccountsRequest { pagination: None });

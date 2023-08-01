@@ -1,4 +1,4 @@
-use tendermint::block::Height;
+use tendermint::block::{Header, Height};
 use tendermint_rpc::{Client, HttpClient};
 
 use crate::{
@@ -34,6 +34,14 @@ pub async fn block_results(trpc: &mut HttpClient, height: u32) -> Result<BlockRe
     Ok(BlockResults::from(block_results_resp))
 }
 
+pub async fn detail_block_header(trpc: &mut HttpClient, height: tendermint::block::Height) -> Result<Header, Error> {
+    let detail_block_header = trpc
+        .header(height)
+        .await
+        .map_err(|e| Error::trpc("block header".to_string(), e))?;
+    Ok(detail_block_header.header)
+}
+
 #[cfg(test)]
 pub mod trpc_block_tests {
     use crate::chain::CosmosChain;
@@ -52,7 +60,9 @@ pub mod trpc_block_tests {
         let mut cosmos_chain = CosmosChain::new(file_path);
 
         cosmos_chain.tendermint_rpc_connect();
-        let trpc_client = cosmos_chain.tendermint_rpc_client().expect("rpc client is empty");
+        let trpc_client = cosmos_chain
+            .tendermint_rpc_client()
+            .expect("rpc client is empty");
         let block_results = block_results(trpc_client, 50 as u32).await;
 
         match block_results {
