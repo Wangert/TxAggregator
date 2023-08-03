@@ -3,9 +3,12 @@ use tendermint::{
     block::{Commit, Header, Height, Id},
     consensus::Params,
     evidence::List,
-    validator::Update,
+    node::Info as NodeInfo,
+    validator::{Info as ValidatorInfo, Update},
 };
-use tendermint_rpc::endpoint::{block_results, block as trpc_block};
+use tendermint_rpc::endpoint::{
+    block as trpc_block, block_results, status as trpc_status, status::SyncInfo, header as trpc_header,
+};
 
 #[derive(Debug, Clone)]
 pub struct Block {
@@ -48,5 +51,34 @@ impl From<block_results::Response> for BlockResults {
             validator_update: value.validator_updates,
             consensus_param_updates: value.consensus_param_updates,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TendermintStatus {
+    pub node_info: NodeInfo,
+    pub sync_info: SyncInfo,
+    pub validator_info: ValidatorInfo,
+}
+
+impl From<trpc_status::Response> for TendermintStatus {
+    fn from(value: trpc_status::Response) -> Self {
+        Self {
+            node_info: value.node_info,
+            sync_info: value.sync_info,
+            validator_info: value.validator_info,
+        }
+    }
+}
+
+
+#[derive(Debug, Clone)]
+pub struct HeaderResult {
+    pub header: Header,
+}
+
+impl From<trpc_header::Response> for HeaderResult {
+    fn from(value: trpc_header::Response) -> Self {
+        Self { header: value.header }
     }
 }

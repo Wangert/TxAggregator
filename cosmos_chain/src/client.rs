@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use ibc_proto::cosmos::staking::v1beta1::query_client::QueryClient as StakingQueryClient;
+use tendermint::{node::Id as TendermintNodeId, block::Header};
 use tendermint_rpc::HttpClient;
 use tonic::transport::Channel;
 use tracing::warn;
@@ -15,14 +16,15 @@ use types::{
         consensus_state::ConsensusState,
         height::Height,
         trust_level::TrustLevel,
-    },
+    }, signer::Signer,
 };
 
 use crate::{
     common::parse_protobuf_duration,
     config::{CosmosChainConfig, TrustThreshold},
     error::Error,
-    query::{grpc, trpc},
+    light_client::verify_block_header_and_fetch_light_block,
+    query::{grpc, trpc}, account::Secp256k1Account,
 };
 
 pub async fn build_create_client_request(
@@ -31,7 +33,7 @@ pub async fn build_create_client_request(
     create_client_options: &CreateClientOptions,
     src_chain_config: &CosmosChainConfig,
     dst_chain_config: &CosmosChainConfig,
-) -> Result<MsgCreateClient, Error> {
+) -> Result<MsgCreateClient, Error> {    
     // client state
     let client_state = build_client_state(
         trpc_client,
@@ -41,11 +43,23 @@ pub async fn build_create_client_request(
         dst_chain_config,
     )
     .await?;
+
     // consensus state
+    let consensus_state = build_consensus_state(
+        trpc_client,
+        src_chain_config,
+        &client_state,
+        client_state.latest_height
+
+    )
+    .await?;
 
     // signer
+    let account = Secp256k1Account::new(&src_chain_config.chain_a_key_path, &src_chain_config.hd_path)?;
+    let signer: Signer = account.address().parse().map_err(|e| Error::signer("address parse".to_string(), e))?;
 
-    todo!()
+    Ok(MsgCreateClient::new(client_state.into(), consensus_state.into(), signer))
+
 }
 
 async fn build_client_state(
@@ -56,17 +70,18 @@ async fn build_client_state(
     dst_chain_config: &CosmosChainConfig,
 ) -> Result<ClientState, Error> {
     // query latest height
-    let abci_info = trpc::abci::abci_info(trpc_client).await?;
-    let last_block_header_info =
-        trpc::block::detail_block_header(trpc_client, abci_info.last_block_height).await?;
+    let latest_block = trpc::block::latest_block(trpc_client).await?;
+    // let abci_info = trpc::abci::abci_info(trpc_client).await?;
+    // let last_block_header_info =
+    //     trpc::block::detail_block_header(trpc_client, abci_info.last_block_height).await?;
     let latest_height = Height::new(
-        chain_version(last_block_header_info.chain_id.as_str()),
-        chain_version(last_block_header_info.chain_id.as_str()),
+        chain_version(latest_block.header.chain_id.as_str()),
+        u64::from(latest_block.header.height),
     )
     .map_err(|e| Error::block_height("new height failed".to_string(), e))?;
 
     // chain id
-    let chain_id = ChainId::from(last_block_header_info.chain_id);
+    let chain_id = ChainId::from(latest_block.header.chain_id);
 
     // max_clock_drift, trusting_period and trust_level setting
     let client_settings =
@@ -112,12 +127,24 @@ async fn build_client_state(
     Ok(client_state)
 }
 
-fn build_consensus_state() -> Result<ConsensusState, Error> {
-    let consensus_state = ConsensusState {
-        timestamp: todo!(),
-        commitment_root: todo!(),
-        next_validators_hash: todo!(),
-    };
+async fn build_consensus_state(
+    trpc: &mut HttpClient,
+    chain_config: &CosmosChainConfig,
+    client_state: &ClientState,
+    height: Height
+) -> Result<ConsensusState, Error> {
+    let status = trpc::consensus::tendermint_status(trpc).await?;
+
+    let verified_block = verify_block_header_and_fetch_light_block(
+        trpc,
+        chain_config,
+        client_state,
+        height,
+        &status.node_info.id,
+        status.sync_info.latest_block_time,
+    )?;
+
+    Ok(ConsensusState::from(verified_block.signed_header.header))
 }
 
 #[derive(Debug, Default)]

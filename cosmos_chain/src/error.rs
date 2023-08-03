@@ -8,6 +8,9 @@ use tendermint_rpc::error::Error as TrpcError;
 use serde_json::Error as SerdeJsonError;
 use utils::encode::error::EncodeError as UtilsEncodeError;
 use crate::tx::types::MEMO_MAX_LEN;
+use tendermint_light_client::components::io::IoError as LightClientIoError;
+use tendermint_light_client::errors::Error as LightClientError;
+use types::signer::SignerError;
 
 define_error! {
     Error {
@@ -112,7 +115,19 @@ define_error! {
         SimulateTxGas
             |_| { "tx simulation no gas amount used was retured" },
         TxSign
-            |_| { "tx signature error" }
+            |_| { "tx signature error" },
+        FetchLightBlock
+            [ TraceError<LightClientIoError> ]
+            |_| { "light client fetch light block error" }, 
+        LightClientVerifyBlock
+            [ TraceError<LightClientError> ]
+            |_| { "light client verify a block with height error" }, 
+        
+        Signer 
+            { payload: String }
+            [ TraceError<SignerError> ]
+            |e| { format!("Signer error: {}", e.payload) },
+
     }
 }
 
@@ -124,13 +139,5 @@ flex_error::define_error! {
                 format_args!("`memo` must been no longer than {} characters, found length {}",
                     MEMO_MAX_LEN, e.length)
             }
-    }
-}
-
-define_error! {
-    #[derive(Debug, PartialEq, Eq)]
-    SignerError {
-        EmptySigner
-            | _ | { "signer cannot be empty" },
     }
 }

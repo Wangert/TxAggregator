@@ -9,9 +9,12 @@ pub struct CosmosChainConfig {
     pub grpc_addr: String,
     pub tendermint_rpc_addr: String,
     pub blockchain_api_addr: String,
+    pub rpc_timeout: u64,
+
     pub chain_a_key_path: String,
     pub chain_b_key_path: String,
     pub hd_path: String,
+    pub trusted_node: bool,
 
 
     pub default_gas: Option<u64>,

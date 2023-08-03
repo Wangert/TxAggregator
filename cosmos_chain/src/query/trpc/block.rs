@@ -3,7 +3,7 @@ use tendermint_rpc::{Client, HttpClient};
 
 use crate::{
     error::Error,
-    query::types::{Block, BlockResults},
+    query::types::{Block, BlockResults, HeaderResult},
 };
 
 pub async fn latest_block(trpc: &mut HttpClient) -> Result<Block, Error> {
@@ -42,11 +42,21 @@ pub async fn detail_block_header(trpc: &mut HttpClient, height: tendermint::bloc
     Ok(detail_block_header.header)
 }
 
+pub async fn test_detail_block_header(trpc: &mut HttpClient, height: tendermint::block::Height) -> Result<HeaderResult, Error> {
+    let detail_block_header = trpc
+        .header(height)
+        .await
+        .map_err(|e| Error::trpc("block header".to_string(), e))?;
+    Ok(HeaderResult::from(detail_block_header))
+}
+
 #[cfg(test)]
 pub mod trpc_block_tests {
+    use tendermint::block::Height;
+
     use crate::chain::CosmosChain;
 
-    use super::block_results;
+    use super::{block_results, test_detail_block_header};
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -67,6 +77,27 @@ pub mod trpc_block_tests {
 
         match block_results {
             Ok(block_results) => println!("BlockResults: {:?}", block_results),
+            Err(e) => println!("{}", e),
+        }
+    }
+
+    #[actix_rt::test]
+    pub async fn trpc_header_works() {
+        init();
+        let file_path =
+            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let mut cosmos_chain = CosmosChain::new(file_path);
+
+        cosmos_chain.tendermint_rpc_connect();
+        let trpc_client = cosmos_chain
+            .tendermint_rpc_client()
+            .expect("rpc client is empty");
+
+        let height = Height::from(50 as u32);
+        let header_results = test_detail_block_header(trpc_client, height).await;
+
+        match header_results {
+            Ok(header_results) => println!("HeaderResults: {:?}", header_results),
             Err(e) => println!("{}", e),
         }
     }

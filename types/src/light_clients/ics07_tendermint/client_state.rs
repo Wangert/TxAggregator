@@ -5,6 +5,7 @@ use ibc_proto::ibc::lightclients::tendermint::v1::ClientState as TmClientState;
 use ibc_proto::{google::protobuf::Any, protobuf::Protobuf};
 use prost::{DecodeError, Message};
 use serde::{Deserialize, Serialize};
+use tendermint_light_client_verifier::options::Options;
 
 use crate::{
     error::TypesError,
@@ -104,6 +105,16 @@ impl ClientState {
             allow_update,
             frozen_height: None,
         })
+    }
+
+    /// Helper method to produce a [`Options`] struct for use in
+    /// Tendermint-specific light client verification.
+    pub fn as_light_client_options(&self) -> Options {
+        Options {
+            trust_threshold: self.trust_level.into(),
+            trusting_period: self.trusting_period,
+            clock_drift: self.max_clock_drift,
+        }
     }
 }
 

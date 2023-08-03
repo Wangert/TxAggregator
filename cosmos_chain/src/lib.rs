@@ -12,3 +12,4 @@ pub mod client;
 pub mod keyring;
 pub mod account;
 pub mod common;
+pub mod light_client;

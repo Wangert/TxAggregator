@@ -15,7 +15,7 @@ use digest::Digest;
 use subtle_encoding::base64;
 use utils::encode::{bech32, protobuf};
 
-use crate::error::{Error, SignerError};
+use crate::error::{Error};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CosmosKey {
@@ -142,33 +142,6 @@ impl Secp256k1KeyPair {
     }
 }
 
-// Define a Signer type corresponds to Signer in Cosmos-SDK, which is essentially a String
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Display)]
-pub struct Signer(String);
-
-impl Signer {
-    pub fn dummy() -> Self {
-        Self("cosmos000000000000000000000000000000000000000".to_string())
-    }
-}
-
-impl FromStr for Signer {
-    type Err = SignerError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = s.to_string();
-        if s.trim().is_empty() {
-            return Err(SignerError::empty_signer());
-        }
-        Ok(Self(s))
-    }
-}
-
-impl AsRef<str> for Signer {
-    fn as_ref(&self) -> &str {
-        self.0.as_str()
-    }
-}
 
 #[cfg(test)]
 pub mod keyring_test {
