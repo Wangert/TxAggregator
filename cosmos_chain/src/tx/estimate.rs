@@ -10,6 +10,7 @@ use ibc_proto::{
         },
     },
     google::protobuf::Any,
+    ibc::core::client::v1::MsgCreateClient as IbcMsgCreateClient,
 };
 use log::{error, info};
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,10 @@ use crate::{
     },
 };
 
-use super::{create::{cosmos_signer_info, create_and_sign_tx}, types::Memo};
+use super::{
+    create::{cosmos_signer_info, create_and_sign_tx},
+    types::Memo,
+};
 
 pub async fn estimate_tx(
     chain_config: &CosmosChainConfig,
@@ -227,4 +231,92 @@ pub async fn simulate_tx(
         .into_inner();
 
     Ok(response)
+}
+
+#[cfg(test)]
+pub mod estimate_tests {
+    use std::time::Duration;
+
+    use ibc_proto::google::protobuf::Any;
+    use ibc_proto::ibc::core::client::v1::MsgCreateClient as IbcMsgCreateClient;
+    use log::info;
+    use utils::encode::protobuf;
+
+    use crate::{
+        account::Secp256k1Account,
+        chain::CosmosChain,
+        client::{build_create_client_request, CreateClientOptions},
+        query::{grpc::connect::{grpc_staking_client, grpc_tx_service_client, grpc_auth_client}, trpc::connect::{tendermint_rpc_client}}, tx::types::Memo,
+    };
+
+    use super::estimate_tx;
+
+    #[test]
+    pub fn estimate_tx_works() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime create error");
+
+        let file_path =
+            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
+
+        let account = Secp256k1Account::new(
+            &cosmos_chain.config.chain_a_key_path,
+            &cosmos_chain.config.hd_path,
+        )
+        .expect("account error!");
+
+        let mut trpc_client = tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
+        let mut grpc_staking_client = rt.block_on(grpc_staking_client(&cosmos_chain.config.grpc_addr));
+        // let mut trpc_client = cosmos_chain.tendermint_rpc_client().unwrap();
+        // let mut grpc_staking_client = cosmos_chain.grpc_staking_client().unwrap();
+
+        let create_client_options = CreateClientOptions {
+            max_clock_drift: Some(Duration::from_secs(cosmos_chain.config.max_block_time)),
+            trusting_period: Some(Duration::from_secs(
+                cosmos_chain.config.trusting_period * 86400,
+            )),
+            trust_level: None,
+        };
+
+        let src_chain_config = cosmos_chain.config.clone();
+        let dst_chain_config = cosmos_chain.config.clone();
+
+        println!("access build create client request");
+        let msg_create_client = build_create_client_request(
+            &mut trpc_client,
+            &mut grpc_staking_client,
+            &create_client_options,
+            &src_chain_config,
+            &dst_chain_config,
+        )
+        .expect("msg_create_client error!");
+
+        let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
+        let protobuf_value =
+            protobuf::encode_to_bytes(&ibc_msg_create_client).expect("protobuf encode error!");
+        let msg = Any {
+            type_url: "/ibc.core.client.v1.MsgCreateClient".to_string(),
+            value: protobuf_value,
+        };
+
+        let mut grpc_tx_service_client = rt.block_on(grpc_tx_service_client(&cosmos_chain.config.grpc_addr));
+        let mut grpc_auth_client = rt.block_on(grpc_auth_client(&cosmos_chain.config.grpc_addr));
+        let tx_memo = Memo::default();
+        let messages = vec![msg];
+
+        println!("execute estimate_tx!!!");
+        let fee = rt.block_on(estimate_tx(
+            &src_chain_config,
+            &mut grpc_auth_client,
+            &mut grpc_tx_service_client,
+            &account,
+            &tx_memo,
+            &messages,
+        ));
+
+        match fee {
+            Ok(fee) => println!("Fee: {:?}", fee),
+            Err(e) => panic!("panic {}", e),
+        }
+    }
 }

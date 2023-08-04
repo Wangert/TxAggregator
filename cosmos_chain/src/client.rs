@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use ibc_proto::cosmos::staking::v1beta1::query_client::QueryClient as StakingQueryClient;
-use tendermint::{node::Id as TendermintNodeId, block::Header};
+use log::info;
+use tendermint::{block::Header, node::Id as TendermintNodeId};
 use tendermint_rpc::HttpClient;
 use tonic::transport::Channel;
 use tracing::warn;
@@ -16,24 +17,27 @@ use types::{
         consensus_state::ConsensusState,
         height::Height,
         trust_level::TrustLevel,
-    }, signer::Signer,
+    },
+    signer::Signer,
 };
 
 use crate::{
+    account::Secp256k1Account,
+    chain::CosmosChain,
     common::parse_protobuf_duration,
     config::{CosmosChainConfig, TrustThreshold},
     error::Error,
     light_client::verify_block_header_and_fetch_light_block,
-    query::{grpc, trpc}, account::Secp256k1Account,
+    query::{grpc, trpc},
 };
 
-pub async fn build_create_client_request(
+pub fn build_create_client_request(
     trpc_client: &mut HttpClient,
     grpc_staking_client: &mut StakingQueryClient<Channel>,
     create_client_options: &CreateClientOptions,
     src_chain_config: &CosmosChainConfig,
     dst_chain_config: &CosmosChainConfig,
-) -> Result<MsgCreateClient, Error> {    
+) -> Result<MsgCreateClient, Error> {
     // client state
     let client_state = build_client_state(
         trpc_client,
@@ -41,28 +45,36 @@ pub async fn build_create_client_request(
         create_client_options,
         src_chain_config,
         dst_chain_config,
-    )
-    .await?;
+    )?;
+
+    println!("access build consensus state");
 
     // consensus state
     let consensus_state = build_consensus_state(
         trpc_client,
         src_chain_config,
         &client_state,
-        client_state.latest_height
-
-    )
-    .await?;
+        client_state.latest_height,
+    )?;
 
     // signer
-    let account = Secp256k1Account::new(&src_chain_config.chain_a_key_path, &src_chain_config.hd_path)?;
-    let signer: Signer = account.address().parse().map_err(|e| Error::signer("address parse".to_string(), e))?;
+    let account = Secp256k1Account::new(
+        &src_chain_config.chain_a_key_path,
+        &src_chain_config.hd_path,
+    )?;
+    let signer: Signer = account
+        .address()
+        .parse()
+        .map_err(|e| Error::signer("address parse".to_string(), e))?;
 
-    Ok(MsgCreateClient::new(client_state.into(), consensus_state.into(), signer))
-
+    Ok(MsgCreateClient::new(
+        client_state.into(),
+        consensus_state.into(),
+        signer,
+    ))
 }
 
-async fn build_client_state(
+fn build_client_state(
     trpc_client: &mut HttpClient,
     grpc_staking_client: &mut StakingQueryClient<Channel>,
     create_client_options: &CreateClientOptions,
@@ -70,7 +82,7 @@ async fn build_client_state(
     dst_chain_config: &CosmosChainConfig,
 ) -> Result<ClientState, Error> {
     // query latest height
-    let latest_block = trpc::block::latest_block(trpc_client).await?;
+    let latest_block = trpc::block::latest_block(trpc_client)?;
     // let abci_info = trpc::abci::abci_info(trpc_client).await?;
     // let last_block_header_info =
     //     trpc::block::detail_block_header(trpc_client, abci_info.last_block_height).await?;
@@ -88,8 +100,7 @@ async fn build_client_state(
         ClientSettings::new(create_client_options, src_chain_config, dst_chain_config);
 
     // Get unbonding_period in the parameter list of the staking module
-    let unbonding_period = grpc::staking::query_staking_params(grpc_staking_client)
-        .await?
+    let unbonding_period = grpc::staking::query_staking_params(grpc_staking_client)?
         .unbonding_time
         .ok_or_else(|| {
             Error::cosmos_params("empty unbonding time in staking params".to_string())
@@ -127,14 +138,15 @@ async fn build_client_state(
     Ok(client_state)
 }
 
-async fn build_consensus_state(
+fn build_consensus_state(
     trpc: &mut HttpClient,
     chain_config: &CosmosChainConfig,
     client_state: &ClientState,
-    height: Height
+    height: Height,
 ) -> Result<ConsensusState, Error> {
-    let status = trpc::consensus::tendermint_status(trpc).await?;
+    let status = trpc::consensus::tendermint_status(trpc)?;
 
+    println!("status.node_info.id: {:?}", status.node_info.id);
     let verified_block = verify_block_header_and_fetch_light_block(
         trpc,
         chain_config,

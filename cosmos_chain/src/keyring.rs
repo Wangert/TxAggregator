@@ -7,15 +7,15 @@ use bitcoin::{
     Network,
 };
 use derive_more::Display;
+use digest::Digest;
 use hdpath::StandardHDPath;
-use secp256k1::{SecretKey, PublicKey, Message, ecdsa::Signature};
+use secp256k1::{ecdsa::Signature, Message, PublicKey, SecretKey};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::Sha256;
-use digest::Digest;
 use subtle_encoding::base64;
 use utils::encode::{bech32, protobuf};
 
-use crate::error::{Error};
+use crate::error::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CosmosKey {
@@ -122,13 +122,17 @@ impl Secp256k1KeyPair {
     }
 
     pub fn public_key_bytes(&self) -> Result<Vec<u8>, Error> {
-        protobuf::encode_to_bytes(&self.public_key.serialize().to_vec()).map_err(|e| Error::utils_protobuf_encode("secp256l1 public key".to_string(), e))
+        protobuf::encode_to_bytes(&self.public_key.serialize().to_vec())
+            .map_err(|e| Error::utils_protobuf_encode("secp256l1 public key".to_string(), e))
     }
 
     pub fn sign(&self, message: &[u8]) -> Result<Vec<u8>, Error> {
         let message_hash = Sha256::digest(message);
         let message = Message::from_slice(&message_hash).unwrap();
-        let signature = Secp256k1::signing_only().sign_ecdsa(&message, &self.private_key).serialize_compact().to_vec();
+        let signature = Secp256k1::signing_only()
+            .sign_ecdsa(&message, &self.private_key)
+            .serialize_compact()
+            .to_vec();
 
         Ok(signature)
     }
@@ -138,10 +142,11 @@ impl Secp256k1KeyPair {
         let message = Message::from_slice(&message_hash).unwrap();
 
         let signature = Signature::from_compact(signature).expect("signature convert error");
-        Secp256k1::verification_only().verify_ecdsa(&message, &signature, &self.public_key).is_ok()
+        Secp256k1::verification_only()
+            .verify_ecdsa(&message, &signature, &self.public_key)
+            .is_ok()
     }
 }
-
 
 #[cfg(test)]
 pub mod keyring_test {
@@ -150,7 +155,7 @@ pub mod keyring_test {
     use log::{error, info};
     use utils::file::toml_file;
 
-    use crate::{error::Error, chain::CosmosChain, account::Secp256k1Account};
+    use crate::{account::Secp256k1Account, chain::CosmosChain, error::Error};
 
     use super::{decode_bech32_address, encode_bech32_address, CosmosKey, EncodedPubKey};
 
@@ -209,10 +214,15 @@ pub mod keyring_test {
 
     #[test]
     pub fn sign_and_verify_works() {
-        let file_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let file_path =
+            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
-        let account = Secp256k1Account::new(&cosmos_chain.config.chain_a_key_path, &cosmos_chain.config.hd_path).expect("account error!");
+        let account = Secp256k1Account::new(
+            &cosmos_chain.config.chain_a_key_path,
+            &cosmos_chain.config.hd_path,
+        )
+        .expect("account error!");
 
         let key_pair = account.key_pair();
         let key_pair = match key_pair {
@@ -233,6 +243,5 @@ pub mod keyring_test {
         let verify_result = key_pair.verify(message, &sig_bytes);
 
         println!("Verify result:{}", verify_result);
-
     }
 }

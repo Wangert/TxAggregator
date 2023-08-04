@@ -87,3 +87,18 @@ pub async fn query_all_account(
 
     Err(Error::no_accounts())
 }
+
+#[cfg(test)]
+pub mod query_grpc_account_tests {
+    use crate::chain::CosmosChain;
+
+    #[test]
+    pub fn query_all_acount_works() {
+        let file_path =
+            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let mut cosmos_chain = CosmosChain::new(file_path);
+        let account = cosmos_chain.query_detail_account_by_address("cosmos1ugksl34fc63kcqhqhgpzpl4je48sa97zffdfqk").expect("query account error!");
+
+        println!("Account: {:#?}", account);
+    }
+}

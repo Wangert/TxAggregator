@@ -18,3 +18,4 @@ serde = { version = "1.0.164", features = ["derive"] }
 safe-regex = "0.2.5"
 prost = "0.11.9"
 bytes = "1.4.0"
+derive_more = "0.99.17"

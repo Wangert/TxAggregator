@@ -6,10 +6,10 @@ use crate::{
     query::types::{Block, BlockResults, HeaderResult},
 };
 
-pub async fn latest_block(trpc: &mut HttpClient) -> Result<Block, Error> {
-    let block_resp = trpc
-        .latest_block()
-        .await
+pub fn latest_block(trpc: &mut HttpClient) -> Result<Block, Error> {
+    let rt = tokio::runtime::Runtime::new().expect("runtime create error");
+    let block_resp = rt.block_on(trpc
+        .latest_block())
         .map_err(|e| Error::latest_block(e))?;
 
     Ok(Block::from(block_resp))
@@ -69,11 +69,9 @@ pub mod trpc_block_tests {
             "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
 
-        cosmos_chain.tendermint_rpc_connect();
-        let trpc_client = cosmos_chain
-            .tendermint_rpc_client()
-            .expect("rpc client is empty");
-        let block_results = block_results(trpc_client, 50 as u32).await;
+        let mut trpc_client = cosmos_chain
+            .tendermint_rpc_client();
+        let block_results = block_results(&mut trpc_client, 50 as u32).await;
 
         match block_results {
             Ok(block_results) => println!("BlockResults: {:?}", block_results),
@@ -88,13 +86,11 @@ pub mod trpc_block_tests {
             "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
 
-        cosmos_chain.tendermint_rpc_connect();
-        let trpc_client = cosmos_chain
-            .tendermint_rpc_client()
-            .expect("rpc client is empty");
+        let mut trpc_client = cosmos_chain
+            .tendermint_rpc_client();
 
         let height = Height::from(50 as u32);
-        let header_results = test_detail_block_header(trpc_client, height).await;
+        let header_results = test_detail_block_header(&mut trpc_client, height).await;
 
         match header_results {
             Ok(header_results) => println!("HeaderResults: {:?}", header_results),

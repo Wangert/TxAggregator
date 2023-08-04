@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use log::info;
 use tendermint::{node::Id as TendermintNodeId, Time};
 use tendermint_light_client::{
     components::{
@@ -32,9 +33,11 @@ pub fn verify_block_header_and_fetch_light_block(
     sync_latest_block_time: Time,
 ) -> Result<LightBlock, Error> {
     if !chain_config.trusted_node {
+        println!("trusted node is false");
         let trpc_io = build_light_client_io(trpc, chain_config, node_id);
         let light_block = fetch_light_block(trpc_io, height)?;
 
+        println!("[verify_block_header_and_fetch_light_block] Light Block: {:?}", light_block);
         return Ok(light_block);
     }
 
@@ -105,9 +108,69 @@ pub fn build_light_client_io(
 }
 
 pub fn fetch_light_block(trpc_io: ProdIo, height: Height) -> Result<LightBlock, Error> {
+    println!("access fetch light block");
     let light_block = trpc_io
         .fetch_light_block(AtHeight::At(height.into()))
         .map_err(|e| Error::fetch_light_block(e))?;
 
     Ok(light_block)
+}
+
+#[cfg(test)]
+pub mod light_client_tests {
+    use types::{light_clients::ics07_tendermint::height::Height, ibc_core::ics24_host::identifier::chain_version};
+
+    use crate::{chain::CosmosChain, query::{grpc::connect::grpc_auth_client, trpc}};
+
+    use super::{build_light_client_io, fetch_light_block};
+
+    #[test]
+    pub fn fetch_light_block_works() {
+        let file_path =
+            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
+
+        let mut trpc_client = trpc::connect::tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
+        let latest_block = trpc::block::latest_block(&mut trpc_client).expect("latest block error!");
+
+        let latest_height = Height::new(
+            chain_version(latest_block.header.chain_id.as_str()),
+            u64::from(latest_block.header.height),
+        ).expect("latest height error!");
+
+        let status = trpc::consensus::tendermint_status(&mut trpc_client).expect("query status error!");
+        let prod_io = build_light_client_io(&mut trpc_client, &cosmos_chain.config, &status.node_info.id);
+
+        let light_block = fetch_light_block(prod_io, latest_height);
+
+        match light_block {
+            Ok(light_block) => println!("Light_block: {:?}", light_block),
+            Err(e) => panic!("{:?}", e),
+        }
+    }
+
+    #[actix_rt::test]
+    pub async fn asy_fecth_light_block_works() {
+        let file_path =
+            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
+
+        let mut trpc_client = trpc::connect::tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
+        let latest_block = trpc::block::latest_block(&mut trpc_client).expect("latest block error");
+
+        let latest_height = Height::new(
+            chain_version(latest_block.header.chain_id.as_str()),
+            u64::from(latest_block.header.height),
+        ).expect("latest height error!");
+
+        let status = trpc::consensus::tendermint_status(&mut trpc_client).expect("status error");
+        let prod_io = build_light_client_io(&mut trpc_client, &cosmos_chain.config, &status.node_info.id);
+
+        let light_block = fetch_light_block(prod_io, latest_height);
+
+        match light_block {
+            Ok(light_block) => println!("Light_block: {:?}", light_block),
+            Err(e) => panic!("{:?}", e),
+        }
+    }
 }

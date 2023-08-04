@@ -3,6 +3,8 @@ use std::num::ParseIntError;
 use flex_error::{define_error, TraceError};
 use tendermint::error::Error as TmError;
 
+use crate::signer::SignerError;
+
 define_error! {
     TypesError {
         // ics07_client_state
@@ -74,5 +76,12 @@ define_error! {
         InvalidProofSpecs
             { reason: String }
             |e| { format_args!("invalid proof specs: {}", e.reason) },
+        EmptyClientState
+            |_| { "empty client state" },
+        EmptyConsensusState
+            |_| { "empty consensus state" },
+        Signer
+            [ SignerError ]
+            | _ | { "failed to parse signer" },
     }
 }

@@ -1,8 +1,10 @@
-use std::str::FromStr;
+use std::{str::FromStr};
+use derive_more::Display;
 
 use flex_error::define_error;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Display)]
 pub struct Signer(String);
 
 impl Default for Signer {
