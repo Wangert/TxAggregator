@@ -1,4 +1,4 @@
-chain_id = "test_chain"
+chain_id = "firstchain-1"
 # grpc address
 grpc_addr = "http://0.0.0.0:9090"
 # grpc_addr = "http://10.176.35.58:9090"

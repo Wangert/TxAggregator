@@ -52,6 +52,7 @@ pub async fn estimate_tx(
         &account_detail,
         tx_memo,
         messages,
+        None,
     )?;
     estimate_tx_fee(chain_config, grpc_service_client, tx).await
 }

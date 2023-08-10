@@ -1,6 +1,12 @@
-use std::{str::FromStr, convert::Infallible, fmt::{Display, Formatter, Error}};
+use std::{
+    convert::Infallible,
+    fmt::{Display, Error, Formatter},
+    str::FromStr,
+};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+
+use crate::error::TypesError;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(from = "tendermint::chain::Id", into = "tendermint::chain::Id")]
@@ -103,23 +109,208 @@ impl From<String> for ChainId {
 }
 
 /// Extract the version from the given chain identifier.
-    /// ```
-    /// use ibc_relayer_types::core::ics24_host::identifier::ChainId;
-    ///
-    /// assert_eq!(ChainId::chain_version("chain--a-0"), 0);
-    /// assert_eq!(ChainId::chain_version("ibc-10"), 10);
-    /// assert_eq!(ChainId::chain_version("cosmos-hub-97"), 97);
-    /// assert_eq!(ChainId::chain_version("testnet-helloworld-2"), 2);
-    /// ```
-    pub fn chain_version(chain_id: &str) -> u64 {
-        if !ChainId::is_epoch_format(chain_id) {
-            return 0;
-        }
-
-        let split: Vec<_> = chain_id.split('-').collect();
-        split
-            .last()
-            .expect("get revision number from chain_id")
-            .parse()
-            .unwrap_or(0)
+/// ```
+/// use ibc_relayer_types::core::ics24_host::identifier::ChainId;
+///
+/// assert_eq!(ChainId::chain_version("chain--a-0"), 0);
+/// assert_eq!(ChainId::chain_version("ibc-10"), 10);
+/// assert_eq!(ChainId::chain_version("cosmos-hub-97"), 97);
+/// assert_eq!(ChainId::chain_version("testnet-helloworld-2"), 2);
+/// ```
+pub fn chain_version(chain_id: &str) -> u64 {
+    if !ChainId::is_epoch_format(chain_id) {
+        return 0;
     }
+
+    let split: Vec<_> = chain_id.split('-').collect();
+    split
+        .last()
+        .expect("get revision number from chain_id")
+        .parse()
+        .unwrap_or(0)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ClientId(String);
+
+impl ClientId {
+    /// Builds a new client identifier. Client identifiers are deterministically formed from two
+    /// elements: a prefix derived from the client type `ctype`, and a monotonically increasing
+    /// `counter`; these are separated by a dash "-".
+    ///
+    /// ```
+    /// # use ibc_relayer_types::core::ics24_host::identifier::ClientId;
+    /// # use ibc_relayer_types::core::ics02_client::client_type::ClientType;
+    /// let tm_client_id = ClientId::new(ClientType::Tendermint, 0);
+    /// assert!(tm_client_id.is_ok());
+    /// tm_client_id.map(|id| { assert_eq!(&id, "07-tendermint-0") });
+    /// ```
+    pub fn new(client_type: &str, counter: u64) -> Result<Self, TypesError> {
+        let id = format!("{client_type}-{counter}");
+        Self::from_str(id.as_str())
+    }
+
+    /// Get this identifier as a borrowed `&str`
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Get this identifier as a borrowed byte slice
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+/// This implementation provides a `to_string` method.
+impl Display for ClientId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for ClientId {
+    type Err = TypesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        validate_client_identifier(s).map(|_| Self(s.to_string()))
+    }
+}
+
+impl Default for ClientId {
+    fn default() -> Self {
+        Self::new("07-tendermint", 0).unwrap()
+    }
+}
+
+/// Equality check against string literal (satisfies &ClientId == &str).
+/// ```
+/// use core::str::FromStr;
+/// use ibc_relayer_types::core::ics24_host::identifier::ClientId;
+/// let client_id = ClientId::from_str("clientidtwo");
+/// assert!(client_id.is_ok());
+/// client_id.map(|id| {assert_eq!(&id, "clientidtwo")});
+/// ```
+impl PartialEq<str> for ClientId {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str().eq(other)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ClientType(String);
+
+impl ClientType {
+    /// Constructs a new `ClientType` from the given `String` if it ends with a valid client identifier.
+    pub fn new(s: &str) -> Result<Self, TypesError> {
+        let s_trim = s.trim();
+        validate_client_type(s_trim)?;
+        Ok(Self(s_trim.to_string()))
+    }
+
+    /// Yields this identifier as a borrowed `&str`
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl FromStr for ClientType {
+    type Err = TypesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s)
+    }
+}
+
+impl Display for ClientType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "ClientType({})", self.0)
+    }
+}
+
+impl Default for ClientType {
+    fn default() -> Self {
+        Self::new("07-tendermint").unwrap()
+    }
+}
+
+/// Path separator (ie. forward slash '/')
+const PATH_SEPARATOR: char = '/';
+const VALID_SPECIAL_CHARS: &str = "._+-#[]<>";
+
+/// Default validator function for identifiers.
+///
+/// A valid identifier only contain lowercase alphabetic characters, and be of a given min and max
+/// length.
+pub fn validate_identifier(id: &str, min: usize, max: usize) -> Result<(), TypesError> {
+    assert!(max >= min);
+
+    // Check identifier is not empty
+    if id.is_empty() {
+        return Err(TypesError::id_empty());
+    }
+
+    // Check identifier does not contain path separators
+    if id.contains(PATH_SEPARATOR) {
+        return Err(TypesError::id_contain_separator(id.to_string()));
+    }
+
+    // Check identifier length is between given min/max
+    if id.len() < min || id.len() > max {
+        return Err(TypesError::id_invalid_length(
+            id.to_string(),
+            id.len(),
+            min,
+            max,
+        ));
+    }
+
+    // Check that the identifier comprises only valid characters:
+    // - Alphanumeric
+    // - `.`, `_`, `+`, `-`, `#`
+    // - `[`, `]`, `<`, `>`
+    if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || VALID_SPECIAL_CHARS.contains(c))
+    {
+        return Err(TypesError::id_invalid_character(id.to_string()));
+    }
+
+    // All good!
+    Ok(())
+}
+
+/// Default validator function for Client identifiers.
+///
+/// A valid identifier must be between 9-64 characters and only contain lowercase
+/// alphabetic characters,
+pub fn validate_client_identifier(id: &str) -> Result<(), TypesError> {
+    validate_identifier(id, 9, 64)
+}
+
+pub fn validate_client_type(id: &str) -> Result<(), TypesError> {
+    validate_identifier(id, 9, 64)
+}
+
+/// Default validator function for Connection identifiers.
+///
+/// A valid Identifier must be between 10-64 characters and only contain lowercase
+/// alphabetic characters,
+pub fn validate_connection_identifier(id: &str) -> Result<(), TypesError> {
+    validate_identifier(id, 10, 64)
+}
+
+/// Default validator function for Port identifiers.
+///
+/// A valid Identifier must be between 2-128 characters and only contain lowercase
+/// alphabetic characters,
+pub fn validate_port_identifier(id: &str) -> Result<(), TypesError> {
+    validate_identifier(id, 2, 128)
+}
+
+/// Default validator function for Channel identifiers.
+///
+/// A valid identifier must be between 8-64 characters and only contain
+/// alphabetic characters,
+pub fn validate_channel_identifier(id: &str) -> Result<(), TypesError> {
+    validate_identifier(id, 8, 64)
+}

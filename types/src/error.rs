@@ -1,4 +1,5 @@
 use std::num::ParseIntError;
+use utils::encode::error::EncodeError;
 
 use flex_error::{define_error, TraceError};
 use tendermint::error::Error as TmError;
@@ -65,7 +66,7 @@ define_error! {
             |e| { format_args!("cannot convert into a `Height` type from string {0}", e.height) },
         ZeroHeight
             |_| { "attempted to parse invalid height 0-0" },
-        
+
         // ics07_tendermint
         InvalidTrustingPeriod
             { reason: String }
@@ -83,5 +84,45 @@ define_error! {
         Signer
             [ SignerError ]
             | _ | { "failed to parse signer" },
+
+        // ics24_host identifier
+        IdContainSeparator
+            { id : String }
+            | e | { format_args!("identifier {0} cannot contain separator '/'", e.id) },
+        IdInvalidLength
+            {
+                id: String,
+                length: usize,
+                min: usize,
+                max: usize,
+            }
+            |e| { format_args!("identifier {0} has invalid length {1} must be between {2}-{3} characters", e.id, e.length, e.min, e.max) },
+        IdInvalidCharacter
+            { id: String }
+            |e| { format_args!("identifier {0} must only contain alphanumeric characters or `.`, `_`, `+`, `-`, `#`, - `[`, `]`, `<`, `>`", e.id) },
+        IdEmpty
+            |_| { "identifier cannot be empty" },
+        ChainIdInvalidFormat
+            { id: String }
+            |e| { format_args!("chain identifiers are expected to be in epoch format {0}", e.id) },
+        ClientIdInvalidFormat
+            { id: String }
+            |e| { format_args!("client identifiers are expected to be in epoch format {0}", e.id) },
+        UnknownClientType
+            { client_type: String }
+            |e| { format_args!("unknown client type: {0}", e.client_type) },
+        InvalidCounterpartyChannelId
+            |_| { "Invalid channel id in counterparty" },
+
+        // ibc_events
+        IncorrectEventType
+            { event: String }
+            |e| { format_args!("incorrect event type: {}", e.event) },
+        UnsupportedAbciEvent
+            { event_type: String}
+            |e| { format_args!("Unable to parse abci event type '{}' into IbcEvent", e.event_type)},
+        AttributesDecode
+            [ TraceError<EncodeError> ]
+            |_| { "attributes decode error" }
     }
 }

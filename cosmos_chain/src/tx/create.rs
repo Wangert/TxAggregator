@@ -17,6 +17,7 @@ pub fn create_and_sign_tx(
     account_detail: &BaseAccount,
     tx_memo: &Memo,
     messages: &[Any],
+    fee: Option<Fee>,
 ) -> Result<(Tx, TxRaw), Error> {
     let public_key_bytes = account_info.key_pair()?.public_key_bytes()?;
 
@@ -25,8 +26,13 @@ pub fn create_and_sign_tx(
     let tx_body = tx_body(messages, tx_memo, vec![]);
     let tx_body_bytes = tx_body_bytes(&tx_body)?;
 
-    let gas_config = GasConfig::from(chain_config);
-    let auth_info = auth_info(signer_info, gas_config.max_fee);
+    let fee = if let Some(fee) = fee {
+        fee
+    } else {
+        GasConfig::from(chain_config).max_fee
+    };
+
+    let auth_info = auth_info(signer_info, fee);
     let auth_info_bytes = auth_info_bytes(&auth_info)?;
 
     let sign_doc = SignDoc {

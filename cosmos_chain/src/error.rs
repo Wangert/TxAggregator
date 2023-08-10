@@ -127,6 +127,16 @@ define_error! {
             { payload: String }
             [ TraceError<SignerError> ]
             |e| { format!("Signer error: {}", e.payload) },
+        TxHash
+            |_| { "tx hash convert error" },
+        TxCommit
+            { payload: String }
+            |e| { format!("tx commit error: {}", e.payload) },
+        
+        IbcEvent
+            { payload: String }
+            [ TraceError<TypesError> ]
+            |e| { format!("ibc event error: {}", e.payload) } 
 
     }
 }
