@@ -60,7 +60,7 @@ pub mod cosmos_config_test {
 
     #[test]
     pub fn read_cosmos_chain_config_works() {
-        let file_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let file_path = "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
 
         let config: CosmosChainConfig = toml_file::toml_file_read(file_path).unwrap();
 

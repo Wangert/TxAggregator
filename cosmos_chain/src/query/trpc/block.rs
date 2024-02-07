@@ -1,5 +1,5 @@
 use tendermint::block::{Header, Height};
-use tendermint_rpc::{Client, HttpClient};
+use tendermint_rpc::{Client, HttpClient, endpoint::broadcast::tx_async};
 
 use crate::{
     error::Error,
@@ -34,6 +34,7 @@ pub async fn block_results(trpc: &mut HttpClient, height: u32) -> Result<BlockRe
     Ok(BlockResults::from(block_results_resp))
 }
 
+
 pub async fn detail_block_header(trpc: &mut HttpClient, height: tendermint::block::Height) -> Result<Header, Error> {
     let detail_block_header = trpc
         .header(height)
@@ -66,12 +67,12 @@ pub mod trpc_block_tests {
     pub async fn trpc_block_results_works() {
         init();
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub//TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client = cosmos_chain
             .tendermint_rpc_client();
-        let block_results = block_results(&mut trpc_client, 50 as u32).await;
+        let block_results = block_results(&mut trpc_client, 51027 as u32).await;
 
         match block_results {
             Ok(block_results) => println!("BlockResults: {:?}", block_results),
@@ -83,13 +84,13 @@ pub mod trpc_block_tests {
     pub async fn trpc_header_works() {
         init();
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client = cosmos_chain
             .tendermint_rpc_client();
 
-        let height = Height::from(50 as u32);
+        let height = Height::from(51027 as u32);
         let header_results = test_detail_block_header(&mut trpc_client, height).await;
 
         match header_results {
