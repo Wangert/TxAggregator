@@ -450,7 +450,7 @@ pub fn ibc_event_try_from_abci_event(abci_event: &Event) -> Result<IbcEvent, Typ
 fn extract_attributes_from_client_event(event: &Event) -> Result<ClientAttributes, TypesError> {
     let mut attr = ClientAttributes::default();
 
-    let decoded_attributes = parse_attributes(event.attributes.clone())?;
+    let decoded_attributes = decode_attributes(event.attributes.clone())?;
     println!("extract: {:?}", decoded_attributes);
     
     for tag in decoded_attributes {
@@ -468,7 +468,7 @@ fn extract_attributes_from_client_event(event: &Event) -> Result<ClientAttribute
     Ok(attr)
 }
 
-pub fn parse_attributes(
+pub fn decode_attributes(
     attributes: Vec<EventAttribute>,
 ) -> Result<Vec<EventAttribute>, TypesError> {
     let mut decoded_attributes: Vec<EventAttribute> = vec![];

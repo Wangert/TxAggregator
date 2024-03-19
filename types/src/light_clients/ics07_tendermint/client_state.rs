@@ -107,6 +107,15 @@ impl ClientState {
         })
     }
 
+    pub fn expired(&self, elapsed: Duration) -> bool {
+        elapsed > self.trusting_period
+    }
+
+    /// Freeze status of the client
+    pub fn is_frozen(&self) -> bool {
+        self.frozen_height.is_some()
+    }
+
     /// Helper method to produce a [`Options`] struct for use in
     /// Tendermint-specific light client verification.
     pub fn as_light_client_options(&self) -> Options {

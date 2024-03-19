@@ -85,6 +85,11 @@ define_error! {
             [ SignerError ]
             | _ | { "failed to parse signer" },
 
+        // ics23_commitment
+        CommitmentProofDecodingFailed
+            [ TraceError<prost::DecodeError> ]
+            |_| { "failed to decode commitment proof" },
+
         // ics24_host identifier
         IdContainSeparator
             { id : String }
@@ -102,6 +107,8 @@ define_error! {
             |e| { format_args!("identifier {0} must only contain alphanumeric characters or `.`, `_`, `+`, `-`, `#`, - `[`, `]`, `<`, `>`", e.id) },
         IdEmpty
             |_| { "identifier cannot be empty" },
+        HeaderEmpty
+            |_| { "empty block header" },
         ChainIdInvalidFormat
             { id: String }
             |e| { format_args!("chain identifiers are expected to be in epoch format {0}", e.id) },

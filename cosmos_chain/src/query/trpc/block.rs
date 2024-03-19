@@ -67,7 +67,7 @@ pub mod trpc_block_tests {
         init();
         let file_path =
             "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
-        let mut cosmos_chain = CosmosChain::new(file_path);
+        let cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client = cosmos_chain
             .tendermint_rpc_client();
@@ -84,7 +84,7 @@ pub mod trpc_block_tests {
         init();
         let file_path =
             "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
-        let mut cosmos_chain = CosmosChain::new(file_path);
+        let cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client = cosmos_chain
             .tendermint_rpc_client();

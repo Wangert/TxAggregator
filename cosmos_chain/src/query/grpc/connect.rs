@@ -1,10 +1,10 @@
 use http::Uri;
-use ibc_proto::cosmos::{
+use ibc_proto::{cosmos::{
     auth::v1beta1::{
         query_client::QueryClient as AuthQueryClient, BaseAccount, EthAccount, QueryAccountRequest,
     },
     staking::v1beta1::{query_client::QueryClient as StakingQueryClient, Params as StakingParams}, tx::v1beta1::service_client::ServiceClient,
-};
+}, ibc::core::client::v1::query_client::QueryClient as IbcClientQueryClient};
 use log::{info, trace};
 use tonic::transport::Channel;
 
@@ -36,6 +36,20 @@ pub async fn grpc_staking_client(grpc_addr: &str) -> StakingQueryClient<Channel>
     info!("grpc staking client connect success");
 
     staking_client.max_decoding_message_size(max_grpc_decoding_size().get_bytes() as usize)
+}
+
+pub async fn grpc_ibcclient_client(grpc_addr: &str) -> IbcClientQueryClient<Channel> {
+    trace!("grpc ibcclient client connect");
+
+    let grpc_addr = grpc_addr.parse::<Uri>().expect("grpc address parse error!");
+    let ibcclient_client = match IbcClientQueryClient::connect(grpc_addr.clone()).await {
+        Ok(client) => client,
+        Err(e) => panic!("grpc ibcclient client connect error: {:?}", e),
+    };
+
+    info!("grpc ibcclient client connect success");
+
+    ibcclient_client.max_decoding_message_size(max_grpc_decoding_size().get_bytes() as usize)
 }
 
 pub async fn grpc_tx_service_client(grpc_addr: &str) -> ServiceClient<Channel> {

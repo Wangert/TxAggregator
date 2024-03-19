@@ -1,16 +1,18 @@
-use flex_error::{define_error, TraceError, DisplayOnly};
-use tonic::{transport::Error as TransportError, Status as GrpcStatus};
-use prost::{DecodeError, EncodeError};
-use types::error::TypesError;
-use std::io::Error as IOError;
-use utils::file::error::FileError;
-use tendermint_rpc::error::Error as TrpcError;
-use serde_json::Error as SerdeJsonError;
-use utils::encode::error::EncodeError as UtilsEncodeError;
 use crate::tx::types::MEMO_MAX_LEN;
+use flex_error::{define_error, DisplayOnly, TraceError};
+use prost::{DecodeError, EncodeError};
+use serde_json::Error as SerdeJsonError;
+use tendermint_rpc::endpoint::abci_query::AbciQuery;
+use std::io::Error as IOError;
 use tendermint_light_client::components::io::IoError as LightClientIoError;
 use tendermint_light_client::errors::Error as LightClientError;
+use tendermint_rpc::error::Error as TrpcError;
+use tonic::{transport::Error as TransportError, Status as GrpcStatus};
+use types::error::TypesError;
 use types::signer::SignerError;
+use utils::encode::error::EncodeError as UtilsEncodeError;
+use utils::file::error::FileError;
+use ibc_proto::protobuf::Error as ProtobufError;
 
 define_error! {
     Error {
@@ -33,11 +35,15 @@ define_error! {
         ProtobufDecode
             { payload_type: String }
             [ TraceError<DecodeError> ]
-            |e| { format!("error decoding protocol buffer for {}", e.payload_type) }, 
+            |e| { format!("error decoding protocol buffer for {}", e.payload_type) },
         ProtobufEncode
             { payload_type: String }
             [ TraceError<EncodeError> ]
             |e| { format!("error encoding protocol buffer for {}", e.payload_type) },
+        IbcProtobufDecode
+            { payload_type: String }
+            [ TraceError<ProtobufError> ]
+            |e| { format!("IBC protobuf decode error: {}", e.payload_type) },
         EmptyBaseAccount
             |_| { "empty BaseAccount within EthAccount" },
         NoAccounts
@@ -57,6 +63,9 @@ define_error! {
         AbciInfo
             [ TraceError<TrpcError> ]
             |_| { "query abci information error" },
+        AbciQuery
+            { query: AbciQuery, payload: String}
+            |e| { format!("ABCI query returned an error: {:?} => details: {:?}", e.query, e.payload) },
         LatestBlock
             [ TraceError<TrpcError> ]
             |_| { "query latest block error" },
@@ -67,10 +76,18 @@ define_error! {
             { payload_type: String }
             [ TraceError<TypesError> ]
             |e| { format!("block height error: {}", e.payload_type) },
+        QueryTrustedHeight
+            { payload_type: String }
+            |e| { format!("query trusted height error: {}", e.payload_type) },
         ClientState
             { payload_type: String }
             [ TraceError<TypesError> ]
             |e| { format!("client state error: {}", e.payload_type) },
+        InvalidClientState
+            { payload_type: String }
+            |e| { format!("Invalid client state: {}", e.payload_type) },
+        ExpiredClientState
+            |_| { "client state has expire" },
         // keyring error
         EncodedPublicKey
             [ TraceError<SerdeJsonError> ]
@@ -97,7 +114,7 @@ define_error! {
             { payload_type: String }
             [ TraceError<UtilsEncodeError> ]
             |e| { format!("error encoding protocol buffer for {}", e.payload_type) },
-        
+
         // account
         HdPath
             { hd_path: String }
@@ -118,12 +135,12 @@ define_error! {
             |_| { "tx signature error" },
         FetchLightBlock
             [ TraceError<LightClientIoError> ]
-            |_| { "light client fetch light block error" }, 
+            |_| { "light client fetch light block error" },
         LightClientVerifyBlock
             [ TraceError<LightClientError> ]
-            |_| { "light client verify a block with height error" }, 
-        
-        Signer 
+            |_| { "light client verify a block with height error" },
+
+        Signer
             { payload: String }
             [ TraceError<SignerError> ]
             |e| { format!("Signer error: {}", e.payload) },
@@ -132,11 +149,11 @@ define_error! {
         TxCommit
             { payload: String }
             |e| { format!("tx commit error: {}", e.payload) },
-        
+
         IbcEvent
             { payload: String }
             [ TraceError<TypesError> ]
-            |e| { format!("ibc event error: {}", e.payload) } 
+            |e| { format!("ibc event error: {}", e.payload) }
 
     }
 }

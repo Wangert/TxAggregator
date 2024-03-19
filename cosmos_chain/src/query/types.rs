@@ -7,7 +7,11 @@ use tendermint::{
     validator::{Info as ValidatorInfo, Update},
 };
 use tendermint_rpc::endpoint::{
-    block as trpc_block, block_results, status as trpc_status, status::SyncInfo, header as trpc_header,
+    abci_query as trpc_acbi_query, block as trpc_block, block_results, header as trpc_header,
+    status as trpc_status, status::SyncInfo,
+};
+use types::ibc_core::ics23_commitment::merkle_tree::{
+    tendermint_proof_to_ics_merkle_proof, MerkleProof,
 };
 
 #[derive(Debug, Clone)]
@@ -55,6 +59,35 @@ impl From<block_results::Response> for BlockResults {
 }
 
 #[derive(Debug, Clone)]
+pub struct AbciQuery {
+    pub value: Vec<u8>,
+    pub height: Height,
+    pub merkle_proof: Option<MerkleProof>,
+}
+
+impl From<trpc_acbi_query::AbciQuery> for AbciQuery {
+    fn from(abci_query: trpc_acbi_query::AbciQuery) -> Self {
+        let mut merkle_proof: Option<MerkleProof> = None;
+
+        if abci_query.proof.is_some() {
+            let proof = abci_query
+                .proof
+                .map(|p| tendermint_proof_to_ics_merkle_proof(&p))
+                .transpose();
+            if let Ok(proof) = proof {
+                merkle_proof = proof
+            }
+        }
+
+        Self {
+            value: abci_query.value,
+            height: abci_query.height,
+            merkle_proof,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TendermintStatus {
     pub node_info: NodeInfo,
     pub sync_info: SyncInfo,
@@ -71,7 +104,6 @@ impl From<trpc_status::Response> for TendermintStatus {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct HeaderResult {
     pub header: Header,
@@ -79,6 +111,8 @@ pub struct HeaderResult {
 
 impl From<trpc_header::Response> for HeaderResult {
     fn from(value: trpc_header::Response) -> Self {
-        Self { header: value.header }
+        Self {
+            header: value.header,
+        }
     }
 }

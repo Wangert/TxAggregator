@@ -1,6 +1,6 @@
-use std::time::Duration;
+use std::{thread, time::Duration};
 
-use ibc_proto::cosmos::staking::v1beta1::query_client::QueryClient as StakingQueryClient;
+use ibc_proto::{cosmos::staking::v1beta1::query_client::QueryClient as StakingQueryClient, ibc::core::client::v1::query_client::QueryClient as IbcClientQueryClient};
 use log::info;
 use tendermint::{block::Header, node::Id as TendermintNodeId};
 use tendermint_rpc::HttpClient;
@@ -8,9 +8,9 @@ use tonic::transport::Channel;
 use tracing::warn;
 use types::{
     ibc_core::{
-        ics02_client::create_client::MsgCreateClient,
+        ics02_client::{create_client::MsgCreateClient, update_client::MsgUpdateClient},
         ics23_commitment::specs::ProofSpecs,
-        ics24_host::identifier::{chain_version, ChainId},
+        ics24_host::identifier::{chain_version, ChainId, ClientId},
     },
     light_clients::ics07_tendermint::{
         client_state::{AllowUpdate, ClientState},
@@ -24,12 +24,66 @@ use types::{
 use crate::{
     account::Secp256k1Account,
     chain::CosmosChain,
-    common::parse_protobuf_duration,
+    common::{parse_protobuf_duration, query_latest_height, QueryHeight, query_trusted_height},
     config::{CosmosChainConfig, TrustThreshold},
     error::Error,
     light_client::verify_block_header_and_fetch_light_block,
-    query::{grpc, trpc},
+    query::{grpc, trpc}, validate::validate_client_state,
 };
+
+pub fn build_update_client_request(
+    src_trpc_client: &mut HttpClient,
+    dst_trpc_client: &mut HttpClient,
+    dst_grpc_client: &mut IbcClientQueryClient<Channel>,
+    client_id: ClientId,
+    target_query_height: QueryHeight,
+    src_chain_config: &CosmosChainConfig,
+    dst_chain_config: &CosmosChainConfig,
+) -> Result<MsgUpdateClient, Error> {
+    // query target height
+    let target_height = match target_query_height {
+        QueryHeight::Latest => query_latest_height(src_trpc_client)?,
+        QueryHeight::Specific(height) => height,
+    };
+
+    // Wait for the source network to produce block(s) & reach `target_height`.
+    while query_latest_height(src_trpc_client)? < target_height {
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    let rt = tokio::runtime::Runtime::new().expect("runtime new error!");
+    // query and verify the latest client_state of src_chain on the dst_chain
+    let client_state = rt.block_on(trpc::abci::abci_query_client_state(
+        dst_trpc_client,
+        client_id.clone(),
+        QueryHeight::Latest,
+        true,
+    ))?;
+
+    let client_state_validate = validate_client_state(src_trpc_client, client_id.clone(), &client_state);
+
+    if let Some(e) = client_state_validate {
+        return Err(e);
+    }
+
+
+    let trusted_height = query_trusted_height(dst_grpc_client, client_id, &client_state, target_height)?;
+
+    // if trusted_height >= target_height {
+    //     warn!(
+    //         "skipping update: trusted height ({}) >= chain target height ({})",
+    //         trusted_height, target_height
+    //     );
+
+    //     return Ok();
+    // }
+
+
+
+    todo!()
+}
+
+// pub fn build_header()
 
 pub fn build_create_client_request(
     trpc_client: &mut HttpClient,
