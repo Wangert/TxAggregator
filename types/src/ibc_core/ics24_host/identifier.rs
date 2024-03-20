@@ -233,6 +233,61 @@ impl Default for ClientType {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ChannelId(String);
+
+impl ChannelId {
+    const PREFIX: &'static str = "channel-";
+
+ 
+    /// ```
+    /// # use ibc_relayer_types::core::ics24_host::identifier::ChannelId;
+    /// let chan_id = ChannelId::new(27);
+    /// assert_eq!(chan_id.to_string(), "channel-27");
+    /// ```
+    pub fn new(counter: u64) -> Self {
+        let id = format!("{}{}", Self::PREFIX, counter);
+        Self(id)
+    }
+
+    /// Get this identifier as a borrowed `&str`
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Get this identifier as a borrowed byte slice
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+/// This implementation provides a `to_string` method.
+impl Display for ChannelId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for ChannelId {
+    type Err = TypesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        validate_channel_identifier(s).map(|_| Self(s.to_string()))
+    }
+}
+
+impl AsRef<str> for ChannelId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Default for ChannelId {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
 /// Path separator (ie. forward slash '/')
 const PATH_SEPARATOR: char = '/';
 const VALID_SPECIAL_CHARS: &str = "._+-#[]<>";

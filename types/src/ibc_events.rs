@@ -2,6 +2,7 @@ use crate::error::TypesError;
 use crate::ibc_core::ics02_client::events::{
     self as ClientEvents, Attributes as ClientAttributes, CreateClientEvent,
 };
+use crate::ibc_core::ics02_client::height::Height;
 use flex_error::{define_error, TraceError};
 use ibc_proto::google::protobuf::field_descriptor_proto::Type;
 use serde::{Deserialize, Serialize};
@@ -66,6 +67,33 @@ const INCENTIVIZED_PACKET_EVENT: &str = "incentivized_ibc_packet";
 const CROSS_CHAIN_QUERY_PACKET_EVENT: &str = "cross_chain_query";
 /// Distribution fee event type
 const DISTRIBUTION_FEE_PACKET_EVENT: &str = "distribute_fee";
+
+
+#[derive(Clone, Debug, Serialize)]
+pub struct IbcEventWithHeight {
+    pub event: IbcEvent,
+    pub height: Height,
+}
+
+impl IbcEventWithHeight {
+    pub fn new(event: IbcEvent, height: Height) -> Self {
+        Self { event, height }
+    }
+
+    pub fn with_height(self, height: Height) -> Self {
+        Self {
+            event: self.event,
+            height,
+        }
+    }
+}
+
+impl Display for IbcEventWithHeight {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
+        write!(f, "{} at height {}", self.event, self.height)
+    }
+}
+
 
 /// Events types
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
