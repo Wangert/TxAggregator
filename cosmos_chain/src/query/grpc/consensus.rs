@@ -1,12 +1,10 @@
 use ibc_proto::ibc::core::client::v1::{
     query_client::QueryClient as IbcClientQueryClient, ConsensusStateWithHeight,
-    QueryConsensusStateHeightsRequest, QueryConsensusStateRequest, QueryConsensusStatesRequest,
+    QueryConsensusStateHeightsRequest, QueryConsensusStatesRequest,
 };
 use log::warn;
 use tonic::transport::Channel;
-use types::{
-    ibc_core::ics24_host::identifier::ClientId, light_clients::ics07_tendermint::height::Height,
-};
+use types::ibc_core::{ics02_client::height::Height, ics24_host::identifier::ClientId};
 
 use crate::{common::PageRequest, error::Error};
 
@@ -77,23 +75,11 @@ pub fn query_all_consensus_states(
 
 #[cfg(test)]
 pub mod grpc_consensus_tests {
-    use ibc_proto::{google::protobuf::Any, protobuf::Protobuf};
-    use tendermint::block::Height;
-    use types::{
-        ibc_core::ics24_host::{
-            identifier::ClientId,
-            path::{ClientStatePath, IBC_QUERY_PATH},
-        },
-        light_clients::ics07_tendermint::client_state::ClientState,
-    };
+    use types::ibc_core::ics24_host::identifier::ClientId;
 
     use crate::{
-        account::Secp256k1Account,
         chain::CosmosChain,
-        query::{
-            grpc::{self, connect::grpc_ibcclient_client},
-            trpc::connect::tendermint_rpc_client,
-        },
+        query::grpc::{self, connect::grpc_ibcclient_client},
     };
 
     #[test]
@@ -101,12 +87,12 @@ pub mod grpc_consensus_tests {
         let rt = tokio::runtime::Runtime::new().expect("runtime create error");
 
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let mut grpc_client = rt.block_on(grpc_ibcclient_client(&cosmos_chain.config.grpc_addr));
 
-        let client_id = ClientId::new("07-tendermint", 16).expect("client id new error!");
+        let client_id = ClientId::new("07-tendermint", 1).expect("client id new error!");
 
         let heights =
             grpc::consensus::query_all_consensus_state_heights(&mut grpc_client, client_id);

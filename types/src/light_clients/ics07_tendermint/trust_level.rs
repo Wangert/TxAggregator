@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter, Error};
 
-use ibc_proto::{protobuf::Protobuf, ibc::lightclients::tendermint::v1::Fraction};
+use ibc_proto::{Protobuf, ibc::lightclients::tendermint::v1::Fraction};
 use num_rational::Ratio;
 use serde::{Serialize, Deserialize};
 use tendermint::trust_threshold::TrustThresholdFraction;

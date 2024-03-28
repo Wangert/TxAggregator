@@ -1,6 +1,9 @@
 use std::{thread, time::Duration};
 
-use ibc_proto::{cosmos::staking::v1beta1::query_client::QueryClient as StakingQueryClient, ibc::core::client::v1::query_client::QueryClient as IbcClientQueryClient};
+use ibc_proto::{
+    cosmos::staking::v1beta1::query_client::QueryClient as StakingQueryClient,
+    ibc::core::client::v1::query_client::QueryClient as IbcClientQueryClient,
+};
 use log::info;
 use tendermint::{block::Header, node::Id as TendermintNodeId};
 use tendermint_rpc::HttpClient;
@@ -8,14 +11,15 @@ use tonic::transport::Channel;
 use tracing::warn;
 use types::{
     ibc_core::{
-        ics02_client::{create_client::MsgCreateClient, update_client::MsgUpdateClient},
+        ics02_client::{
+            create_client::MsgCreateClient, height::Height, update_client::MsgUpdateClient,
+        },
         ics23_commitment::specs::ProofSpecs,
         ics24_host::identifier::{chain_version, ChainId, ClientId},
     },
     light_clients::ics07_tendermint::{
         client_state::{AllowUpdate, ClientState},
         consensus_state::ConsensusState,
-        height::Height,
         trust_level::TrustLevel,
     },
     signer::Signer,
@@ -24,11 +28,12 @@ use types::{
 use crate::{
     account::Secp256k1Account,
     chain::CosmosChain,
-    common::{parse_protobuf_duration, query_latest_height, QueryHeight, query_trusted_height},
+    common::{parse_protobuf_duration, query_latest_height, query_trusted_height, QueryHeight},
     config::{CosmosChainConfig, TrustThreshold},
     error::Error,
     light_client::verify_block_header_and_fetch_light_block,
-    query::{grpc, trpc}, validate::validate_client_state,
+    query::{grpc, trpc},
+    validate::validate_client_state,
 };
 
 pub fn build_update_client_request(
@@ -60,14 +65,15 @@ pub fn build_update_client_request(
         true,
     ))?;
 
-    let client_state_validate = validate_client_state(src_trpc_client, client_id.clone(), &client_state);
+    let client_state_validate =
+        validate_client_state(src_trpc_client, client_id.clone(), &client_state);
 
     if let Some(e) = client_state_validate {
         return Err(e);
     }
 
-
-    let trusted_height = query_trusted_height(dst_grpc_client, client_id, &client_state, target_height)?;
+    let trusted_height =
+        query_trusted_height(dst_grpc_client, client_id, &client_state, target_height)?;
 
     // if trusted_height >= target_height {
     //     warn!(
@@ -77,8 +83,6 @@ pub fn build_update_client_request(
 
     //     return Ok();
     // }
-
-
 
     todo!()
 }

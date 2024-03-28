@@ -62,16 +62,18 @@ pub mod trpc_block_tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    #[actix_rt::test]
-    pub async fn trpc_block_results_works() {
+    #[test]
+    pub fn trpc_block_results_works() {
         init();
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
 
         let mut trpc_client = cosmos_chain
             .tendermint_rpc_client();
-        let block_results = block_results(&mut trpc_client, 50 as u32).await;
+        let block_results = rt.block_on(block_results(&mut trpc_client, 50 as u32));
 
         match block_results {
             Ok(block_results) => println!("BlockResults: {:?}", block_results),

@@ -1,5 +1,5 @@
-use ibc_proto::{google::protobuf::Any, protobuf::Protobuf, ibc::core::client::v1::MsgCreateClient as IbcMsgCreateClient};
-
+use ibc_proto::{google::protobuf::Any, Protobuf};
+use ibc_proto::ibc::core::client::v1::MsgCreateClient as RawMsgCreateClient;
 use crate::{signer::Signer, error::TypesError};
 
 #[derive(Debug, Clone)]
@@ -19,12 +19,12 @@ impl MsgCreateClient {
     }
 }
 
-impl Protobuf<IbcMsgCreateClient> for MsgCreateClient {}
+impl Protobuf<RawMsgCreateClient> for MsgCreateClient {}
 
-impl TryFrom<IbcMsgCreateClient> for MsgCreateClient {
+impl TryFrom<RawMsgCreateClient> for MsgCreateClient {
     type Error = TypesError;
 
-    fn try_from(raw: IbcMsgCreateClient) -> Result<Self, TypesError> {
+    fn try_from(raw: RawMsgCreateClient) -> Result<Self, TypesError> {
         let raw_client_state = raw
             .client_state
             .ok_or_else(TypesError::empty_client_state)?;
@@ -41,9 +41,9 @@ impl TryFrom<IbcMsgCreateClient> for MsgCreateClient {
     }
 }
 
-impl From<MsgCreateClient> for IbcMsgCreateClient {
+impl From<MsgCreateClient> for RawMsgCreateClient {
     fn from(msg_create_client: MsgCreateClient) -> Self {
-        IbcMsgCreateClient {
+        RawMsgCreateClient {
             client_state: Some(msg_create_client.client_state),
             consensus_state: Some(msg_create_client.consensus_state),
             signer: msg_create_client.signer.to_string(),

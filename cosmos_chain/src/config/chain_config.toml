@@ -16,8 +16,8 @@ rpc_timeout = 10
 # performance_internal = 2000
 # crash_duration = 30000
 # malicious_duration = 20000
-chain_a_key_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/key_a.toml"
-chain_b_key_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/key_a.toml"
+chain_a_key_path = "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/key_a.toml"
+chain_b_key_path = "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/key_a.toml"
 
 hd_path = "m/44'/118'/0'/0/0"
 

@@ -1,15 +1,24 @@
 use crate::error::TypesError;
 use crate::ibc_core::ics02_client::events::{
-    self as ClientEvents, Attributes as ClientAttributes, CreateClientEvent,
+    self as ClientEvents, Attributes as ClientAttributes, NewBlock, HEADER_ATTRIBUTE_KEY,
 };
+use crate::ibc_core::ics02_client::header::{decode_header, AnyHeader};
 use crate::ibc_core::ics02_client::height::Height;
+use crate::ibc_core::ics03_connection::events::{
+    self as ConnectionEvents, Attributes as ConnectionAttributes,
+};
+use crate::ibc_core::ics04_channel::events::{
+    self as ChannelEvents, Attributes as ChannelAttributes,
+};
+use crate::ibc_core::ics04_channel::packet::Packet;
 use flex_error::{define_error, TraceError};
 use ibc_proto::google::protobuf::field_descriptor_proto::Type;
 use serde::{Deserialize, Serialize};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::str::FromStr;
-use tendermint::abci::{self, Event, EventAttribute};
+use subtle_encoding::hex;
+use tendermint::abci::{self, Event as AbciEvent, EventAttribute};
 use tendermint_proto::serializers::bytes::base64string;
 use utils::encode::base64;
 
@@ -68,7 +77,6 @@ const CROSS_CHAIN_QUERY_PACKET_EVENT: &str = "cross_chain_query";
 /// Distribution fee event type
 const DISTRIBUTION_FEE_PACKET_EVENT: &str = "distribute_fee";
 
-
 #[derive(Clone, Debug, Serialize)]
 pub struct IbcEventWithHeight {
     pub event: IbcEvent,
@@ -93,7 +101,6 @@ impl Display for IbcEventWithHeight {
         write!(f, "{} at height {}", self.event, self.height)
     }
 }
-
 
 /// Events types
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -201,30 +208,29 @@ impl FromStr for IbcEventType {
 /// Events created by the IBC component of a chain, destined for a relayer.
 #[derive(Debug, Clone, Serialize)]
 pub enum IbcEvent {
-    // NewBlock(NewBlock),
-    CreateClient(ClientEvents::CreateClientEvent),
-    UpdateClient(ClientEvents::UpdateClientEvent),
-    // UpgradeClient(ClientEvents::UpgradeClient),
+    NewBlock(NewBlock),
+    CreateClient(ClientEvents::CreateClient),
+    UpdateClient(ClientEvents::UpdateClient),
+    UpgradeClient(ClientEvents::UpgradeClient),
     // ClientMisbehaviour(ClientEvents::ClientMisbehaviour),
+    OpenInitConnection(ConnectionEvents::OpenInit),
+    OpenTryConnection(ConnectionEvents::OpenTry),
+    OpenAckConnection(ConnectionEvents::OpenAck),
+    OpenConfirmConnection(ConnectionEvents::OpenConfirm),
 
-    // OpenInitConnection(ConnectionEvents::OpenInit),
-    // OpenTryConnection(ConnectionEvents::OpenTry),
-    // OpenAckConnection(ConnectionEvents::OpenAck),
-    // OpenConfirmConnection(ConnectionEvents::OpenConfirm),
+    OpenInitChannel(ChannelEvents::OpenInit),
+    OpenTryChannel(ChannelEvents::OpenTry),
+    OpenAckChannel(ChannelEvents::OpenAck),
+    OpenConfirmChannel(ChannelEvents::OpenConfirm),
+    CloseInitChannel(ChannelEvents::CloseInit),
+    CloseConfirmChannel(ChannelEvents::CloseConfirm),
 
-    // OpenInitChannel(ChannelEvents::OpenInit),
-    // OpenTryChannel(ChannelEvents::OpenTry),
-    // OpenAckChannel(ChannelEvents::OpenAck),
-    // OpenConfirmChannel(ChannelEvents::OpenConfirm),
-    // CloseInitChannel(ChannelEvents::CloseInit),
-    // CloseConfirmChannel(ChannelEvents::CloseConfirm),
-
-    // SendPacket(ChannelEvents::SendPacket),
-    // ReceivePacket(ChannelEvents::ReceivePacket),
-    // WriteAcknowledgement(ChannelEvents::WriteAcknowledgement),
-    // AcknowledgePacket(ChannelEvents::AcknowledgePacket),
-    // TimeoutPacket(ChannelEvents::TimeoutPacket),
-    // TimeoutOnClosePacket(ChannelEvents::TimeoutOnClosePacket),
+    SendPacket(ChannelEvents::SendPacket),
+    ReceivePacket(ChannelEvents::ReceivePacket),
+    WriteAcknowledgement(ChannelEvents::WriteAcknowledgement),
+    AcknowledgePacket(ChannelEvents::AcknowledgePacket),
+    TimeoutPacket(ChannelEvents::TimeoutPacket),
+    TimeoutOnClosePacket(ChannelEvents::TimeoutOnClosePacket),
 
     // IncentivizedPacket(IncentivizedPacket),
     // CrossChainQueryPacket(CrossChainQueryPacket),
@@ -238,30 +244,29 @@ pub enum IbcEvent {
 impl Display for IbcEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         match self {
-            // IbcEvent::NewBlock(ev) => write!(f, "NewBlock({})", ev.height),
+            IbcEvent::NewBlock(ev) => write!(f, "NewBlock({})", ev.height),
             IbcEvent::CreateClient(ev) => write!(f, "CreateClient({ev})"),
             IbcEvent::UpdateClient(ev) => write!(f, "UpdateClient({ev})"),
-            // IbcEvent::UpgradeClient(ev) => write!(f, "UpgradeClient({ev})"),
+            IbcEvent::UpgradeClient(ev) => write!(f, "UpgradeClient({ev})"),
             // IbcEvent::ClientMisbehaviour(ev) => write!(f, "ClientMisbehaviour({ev})"),
+            IbcEvent::OpenInitConnection(ev) => write!(f, "OpenInitConnection({ev})"),
+            IbcEvent::OpenTryConnection(ev) => write!(f, "OpenTryConnection({ev})"),
+            IbcEvent::OpenAckConnection(ev) => write!(f, "OpenAckConnection({ev})"),
+            IbcEvent::OpenConfirmConnection(ev) => write!(f, "OpenConfirmConnection({ev})"),
 
-            // IbcEvent::OpenInitConnection(ev) => write!(f, "OpenInitConnection({ev})"),
-            // IbcEvent::OpenTryConnection(ev) => write!(f, "OpenTryConnection({ev})"),
-            // IbcEvent::OpenAckConnection(ev) => write!(f, "OpenAckConnection({ev})"),
-            // IbcEvent::OpenConfirmConnection(ev) => write!(f, "OpenConfirmConnection({ev})"),
+            IbcEvent::OpenInitChannel(ev) => write!(f, "OpenInitChannel({ev})"),
+            IbcEvent::OpenTryChannel(ev) => write!(f, "OpenTryChannel({ev})"),
+            IbcEvent::OpenAckChannel(ev) => write!(f, "OpenAckChannel({ev})"),
+            IbcEvent::OpenConfirmChannel(ev) => write!(f, "OpenConfirmChannel({ev})"),
+            IbcEvent::CloseInitChannel(ev) => write!(f, "CloseInitChannel({ev})"),
+            IbcEvent::CloseConfirmChannel(ev) => write!(f, "CloseConfirmChannel({ev})"),
 
-            // IbcEvent::OpenInitChannel(ev) => write!(f, "OpenInitChannel({ev})"),
-            // IbcEvent::OpenTryChannel(ev) => write!(f, "OpenTryChannel({ev})"),
-            // IbcEvent::OpenAckChannel(ev) => write!(f, "OpenAckChannel({ev})"),
-            // IbcEvent::OpenConfirmChannel(ev) => write!(f, "OpenConfirmChannel({ev})"),
-            // IbcEvent::CloseInitChannel(ev) => write!(f, "CloseInitChannel({ev})"),
-            // IbcEvent::CloseConfirmChannel(ev) => write!(f, "CloseConfirmChannel({ev})"),
-
-            // IbcEvent::SendPacket(ev) => write!(f, "SendPacket({ev})"),
-            // IbcEvent::ReceivePacket(ev) => write!(f, "ReceivePacket({ev})"),
-            // IbcEvent::WriteAcknowledgement(ev) => write!(f, "WriteAcknowledgement({ev})"),
-            // IbcEvent::AcknowledgePacket(ev) => write!(f, "AcknowledgePacket({ev})"),
-            // IbcEvent::TimeoutPacket(ev) => write!(f, "TimeoutPacket({ev})"),
-            // IbcEvent::TimeoutOnClosePacket(ev) => write!(f, "TimeoutOnClosePacket({ev})"),
+            IbcEvent::SendPacket(ev) => write!(f, "SendPacket({ev})"),
+            IbcEvent::ReceivePacket(ev) => write!(f, "ReceivePacket({ev})"),
+            IbcEvent::WriteAcknowledgement(ev) => write!(f, "WriteAcknowledgement({ev})"),
+            IbcEvent::AcknowledgePacket(ev) => write!(f, "AcknowledgePacket({ev})"),
+            IbcEvent::TimeoutPacket(ev) => write!(f, "TimeoutPacket({ev})"),
+            IbcEvent::TimeoutOnClosePacket(ev) => write!(f, "TimeoutOnClosePacket({ev})"),
 
             // IbcEvent::IncentivizedPacket(ev) => write!(f, "IncenvitizedPacket({ev:?}"),
             // IbcEvent::CrossChainQueryPacket(ev) => write!(f, "CrosschainPacket({ev:?})"),
@@ -274,41 +279,42 @@ impl Display for IbcEvent {
     }
 }
 
-impl TryFrom<IbcEvent> for abci::Event {
-    type Error = TypesError;
+// impl TryFrom<IbcEvent> for abci::Event {
+//     type Error = TypesError;
 
-    fn try_from(event: IbcEvent) -> Result<Self, Self::Error> {
-        Ok(match event {
-            IbcEvent::CreateClient(event) => event.into(),
-            IbcEvent::UpdateClient(event) => event.into(),
-            // IbcEvent::UpgradeClient(event) => event.into(),
-            // IbcEvent::ClientMisbehaviour(event) => event.into(),
-            // IbcEvent::OpenInitConnection(event) => event.into(),
-            // IbcEvent::OpenTryConnection(event) => event.into(),
-            // IbcEvent::OpenAckConnection(event) => event.into(),
-            // IbcEvent::OpenConfirmConnection(event) => event.into(),
-            // IbcEvent::OpenInitChannel(event) => event.into(),
-            // IbcEvent::OpenTryChannel(event) => event.into(),
-            // IbcEvent::OpenAckChannel(event) => event.into(),
-            // IbcEvent::OpenConfirmChannel(event) => event.into(),
-            // IbcEvent::CloseInitChannel(event) => event.into(),
-            // IbcEvent::CloseConfirmChannel(event) => event.into(),
-            // IbcEvent::SendPacket(event) => event.try_into().map_err(Error::channel)?,
-            // IbcEvent::ReceivePacket(event) => event.try_into().map_err(Error::channel)?,
-            // IbcEvent::WriteAcknowledgement(event) => event.try_into().map_err(Error::channel)?,
-            // IbcEvent::AcknowledgePacket(event) => event.try_into().map_err(Error::channel)?,
-            // IbcEvent::TimeoutPacket(event) => event.try_into().map_err(Error::channel)?,
-            // IbcEvent::TimeoutOnClosePacket(event) => event.try_into().map_err(Error::channel)?,
-            // IbcEvent::IncentivizedPacket(event) => event.into(),
-            // IbcEvent::CrossChainQueryPacket(event) => event.into(),
-            // IbcEvent::DistributeFeePacket(event) => event.into(),
-            // IbcEvent::AppModule(event) => event.try_into()?,
-            IbcEvent::CosmosChainError(_) => {
-                return Err(TypesError::incorrect_event_type(event.to_string()));
-            }
-        })
-    }
-}
+//     fn try_from(event: IbcEvent) -> Result<Self, Self::Error> {
+//         Ok(match event {
+//             IbcEvent::NewBlock(event) => event.into(),
+//             IbcEvent::CreateClient(event) => event.into(),
+//             IbcEvent::UpdateClient(event) => event.into(),
+//             // IbcEvent::UpgradeClient(event) => event.into(),
+//             // IbcEvent::ClientMisbehaviour(event) => event.into(),
+//             // IbcEvent::OpenInitConnection(event) => event.into(),
+//             // IbcEvent::OpenTryConnection(event) => event.into(),
+//             // IbcEvent::OpenAckConnection(event) => event.into(),
+//             // IbcEvent::OpenConfirmConnection(event) => event.into(),
+//             // IbcEvent::OpenInitChannel(event) => event.into(),
+//             // IbcEvent::OpenTryChannel(event) => event.into(),
+//             // IbcEvent::OpenAckChannel(event) => event.into(),
+//             // IbcEvent::OpenConfirmChannel(event) => event.into(),
+//             // IbcEvent::CloseInitChannel(event) => event.into(),
+//             // IbcEvent::CloseConfirmChannel(event) => event.into(),
+//             // IbcEvent::SendPacket(event) => event.try_into().map_err(Error::channel)?,
+//             // IbcEvent::ReceivePacket(event) => event.try_into().map_err(Error::channel)?,
+//             // IbcEvent::WriteAcknowledgement(event) => event.try_into().map_err(Error::channel)?,
+//             // IbcEvent::AcknowledgePacket(event) => event.try_into().map_err(Error::channel)?,
+//             // IbcEvent::TimeoutPacket(event) => event.try_into().map_err(Error::channel)?,
+//             // IbcEvent::TimeoutOnClosePacket(event) => event.try_into().map_err(Error::channel)?,
+//             // IbcEvent::IncentivizedPacket(event) => event.into(),
+//             // IbcEvent::CrossChainQueryPacket(event) => event.into(),
+//             // IbcEvent::DistributeFeePacket(event) => event.into(),
+//             // IbcEvent::AppModule(event) => event.try_into()?,
+//             IbcEvent::CosmosChainError(_) => {
+//                 return Err(TypesError::incorrect_event_type(event.to_string()));
+//             }
+//         })
+//     }
+// }
 
 impl IbcEvent {
     pub fn to_json(&self) -> String {
@@ -320,27 +326,27 @@ impl IbcEvent {
 
     pub fn event_type(&self) -> IbcEventType {
         match self {
-            // IbcEvent::NewBlock(_) => IbcEventType::NewBlock,
+            IbcEvent::NewBlock(_) => IbcEventType::NewBlock,
             IbcEvent::CreateClient(_) => IbcEventType::CreateClient,
             IbcEvent::UpdateClient(_) => IbcEventType::UpdateClient,
             // IbcEvent::ClientMisbehaviour(_) => IbcEventType::ClientMisbehaviour,
-            // IbcEvent::UpgradeClient(_) => IbcEventType::UpgradeClient,
-            // IbcEvent::OpenInitConnection(_) => IbcEventType::OpenInitConnection,
-            // IbcEvent::OpenTryConnection(_) => IbcEventType::OpenTryConnection,
-            // IbcEvent::OpenAckConnection(_) => IbcEventType::OpenAckConnection,
-            // IbcEvent::OpenConfirmConnection(_) => IbcEventType::OpenConfirmConnection,
-            // IbcEvent::OpenInitChannel(_) => IbcEventType::OpenInitChannel,
-            // IbcEvent::OpenTryChannel(_) => IbcEventType::OpenTryChannel,
-            // IbcEvent::OpenAckChannel(_) => IbcEventType::OpenAckChannel,
-            // IbcEvent::OpenConfirmChannel(_) => IbcEventType::OpenConfirmChannel,
-            // IbcEvent::CloseInitChannel(_) => IbcEventType::CloseInitChannel,
-            // IbcEvent::CloseConfirmChannel(_) => IbcEventType::CloseConfirmChannel,
-            // IbcEvent::SendPacket(_) => IbcEventType::SendPacket,
-            // IbcEvent::ReceivePacket(_) => IbcEventType::ReceivePacket,
-            // IbcEvent::WriteAcknowledgement(_) => IbcEventType::WriteAck,
-            // IbcEvent::AcknowledgePacket(_) => IbcEventType::AckPacket,
-            // IbcEvent::TimeoutPacket(_) => IbcEventType::Timeout,
-            // IbcEvent::TimeoutOnClosePacket(_) => IbcEventType::TimeoutOnClose,
+            IbcEvent::UpgradeClient(_) => IbcEventType::UpgradeClient,
+            IbcEvent::OpenInitConnection(_) => IbcEventType::OpenInitConnection,
+            IbcEvent::OpenTryConnection(_) => IbcEventType::OpenTryConnection,
+            IbcEvent::OpenAckConnection(_) => IbcEventType::OpenAckConnection,
+            IbcEvent::OpenConfirmConnection(_) => IbcEventType::OpenConfirmConnection,
+            IbcEvent::OpenInitChannel(_) => IbcEventType::OpenInitChannel,
+            IbcEvent::OpenTryChannel(_) => IbcEventType::OpenTryChannel,
+            IbcEvent::OpenAckChannel(_) => IbcEventType::OpenAckChannel,
+            IbcEvent::OpenConfirmChannel(_) => IbcEventType::OpenConfirmChannel,
+            IbcEvent::CloseInitChannel(_) => IbcEventType::CloseInitChannel,
+            IbcEvent::CloseConfirmChannel(_) => IbcEventType::CloseConfirmChannel,
+            IbcEvent::SendPacket(_) => IbcEventType::SendPacket,
+            IbcEvent::ReceivePacket(_) => IbcEventType::ReceivePacket,
+            IbcEvent::WriteAcknowledgement(_) => IbcEventType::WriteAck,
+            IbcEvent::AcknowledgePacket(_) => IbcEventType::AckPacket,
+            IbcEvent::TimeoutPacket(_) => IbcEventType::Timeout,
+            IbcEvent::TimeoutOnClosePacket(_) => IbcEventType::TimeoutOnClose,
             // IbcEvent::IncentivizedPacket(_) => IbcEventType::IncentivizedPacket,
             // IbcEvent::CrossChainQueryPacket(_) => IbcEventType::CrossChainQuery,
             // IbcEvent::DistributeFeePacket(_) => IbcEventType::DistributionFee,
@@ -349,37 +355,37 @@ impl IbcEvent {
         }
     }
 
-    // pub fn channel_attributes(self) -> Option<ChannelAttributes> {
-    //     match self {
-    //         IbcEvent::OpenInitChannel(ev) => Some(ev.into()),
-    //         IbcEvent::OpenTryChannel(ev) => Some(ev.into()),
-    //         IbcEvent::OpenAckChannel(ev) => Some(ev.into()),
-    //         IbcEvent::OpenConfirmChannel(ev) => Some(ev.into()),
-    //         _ => None,
-    //     }
-    // }
+    pub fn channel_attributes(self) -> Option<ChannelAttributes> {
+        match self {
+            IbcEvent::OpenInitChannel(ev) => Some(ev.into()),
+            IbcEvent::OpenTryChannel(ev) => Some(ev.into()),
+            IbcEvent::OpenAckChannel(ev) => Some(ev.into()),
+            IbcEvent::OpenConfirmChannel(ev) => Some(ev.into()),
+            _ => None,
+        }
+    }
 
-    // pub fn connection_attributes(&self) -> Option<&ConnectionAttributes> {
-    //     match self {
-    //         IbcEvent::OpenInitConnection(ev) => Some(ev.attributes()),
-    //         IbcEvent::OpenTryConnection(ev) => Some(ev.attributes()),
-    //         IbcEvent::OpenAckConnection(ev) => Some(ev.attributes()),
-    //         IbcEvent::OpenConfirmConnection(ev) => Some(ev.attributes()),
-    //         _ => None,
-    //     }
-    // }
+    pub fn connection_attributes(&self) -> Option<&ConnectionAttributes> {
+        match self {
+            IbcEvent::OpenInitConnection(ev) => Some(ev.attributes()),
+            IbcEvent::OpenTryConnection(ev) => Some(ev.attributes()),
+            IbcEvent::OpenAckConnection(ev) => Some(ev.attributes()),
+            IbcEvent::OpenConfirmConnection(ev) => Some(ev.attributes()),
+            _ => None,
+        }
+    }
 
-    // pub fn packet(&self) -> Option<&Packet> {
-    //     match self {
-    //         IbcEvent::SendPacket(ev) => Some(&ev.packet),
-    //         IbcEvent::ReceivePacket(ev) => Some(&ev.packet),
-    //         IbcEvent::WriteAcknowledgement(ev) => Some(&ev.packet),
-    //         IbcEvent::AcknowledgePacket(ev) => Some(&ev.packet),
-    //         IbcEvent::TimeoutPacket(ev) => Some(&ev.packet),
-    //         IbcEvent::TimeoutOnClosePacket(ev) => Some(&ev.packet),
-    //         _ => None,
-    //     }
-    // }
+    pub fn packet(&self) -> Option<&Packet> {
+        match self {
+            IbcEvent::SendPacket(ev) => Some(&ev.packet),
+            IbcEvent::ReceivePacket(ev) => Some(&ev.packet),
+            IbcEvent::WriteAcknowledgement(ev) => Some(&ev.packet),
+            IbcEvent::AcknowledgePacket(ev) => Some(&ev.packet),
+            IbcEvent::TimeoutPacket(ev) => Some(&ev.packet),
+            IbcEvent::TimeoutOnClosePacket(ev) => Some(&ev.packet),
+            _ => None,
+        }
+    }
 
     // pub fn cross_chain_query_packet(&self) -> Option<&CrossChainQueryPacket> {
     //     match self {
@@ -388,46 +394,42 @@ impl IbcEvent {
     //     }
     // }
 
-    // pub fn ack(&self) -> Option<&[u8]> {
-    //     match self {
-    //         IbcEvent::WriteAcknowledgement(ev) => Some(&ev.ack),
-    //         _ => None,
-    //     }
-    // }
+    pub fn ack(&self) -> Option<&[u8]> {
+        match self {
+            IbcEvent::WriteAcknowledgement(ev) => Some(&ev.ack),
+            _ => None,
+        }
+    }
 }
 
-pub fn ibc_event_try_from_abci_event(abci_event: &Event) -> Result<IbcEvent, TypesError> {
+pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent, TypesError> {
     match abci_event.kind.parse() {
         Ok(IbcEventType::CreateClient) => {
             let create_attributes = extract_attributes_from_client_event(abci_event)?;
-            let create_client_event = CreateClientEvent(create_attributes);
+            let create_client_event = ClientEvents::CreateClient(create_attributes);
             Ok(IbcEvent::CreateClient(create_client_event))
         }
-        // Ok(IbcEventType::UpdateClient) => Ok(IbcEvent::UpdateClient(
-        //     update_client_try_from_abci_event(abci_event).map_err(IbcEventError::client)?,
-        // )),
-        // Ok(IbcEventType::UpgradeClient) => Ok(IbcEvent::UpgradeClient(
-        //     upgrade_client_try_from_abci_event(abci_event).map_err(IbcEventError::client)?,
-        // )),
+        Ok(IbcEventType::UpdateClient) => Ok(IbcEvent::UpdateClient(
+            update_client_try_from_abci_event(abci_event)?,
+        )),
+        Ok(IbcEventType::UpgradeClient) => Ok(IbcEvent::UpgradeClient(
+            upgrade_client_try_from_abci_event(abci_event)?,
+        )),
         // Ok(IbcEventType::ClientMisbehaviour) => Ok(IbcEvent::ClientMisbehaviour(
         //     client_misbehaviour_try_from_abci_event(abci_event).map_err(IbcEventError::client)?,
         // )),
-        // Ok(IbcEventType::OpenInitConnection) => Ok(IbcEvent::OpenInitConnection(
-        //     connection_open_init_try_from_abci_event(abci_event)
-        //         .map_err(IbcEventError::connection)?,
-        // )),
-        // Ok(IbcEventType::OpenTryConnection) => Ok(IbcEvent::OpenTryConnection(
-        //     connection_open_try_try_from_abci_event(abci_event)
-        //         .map_err(IbcEventError::connection)?,
-        // )),
-        // Ok(IbcEventType::OpenAckConnection) => Ok(IbcEvent::OpenAckConnection(
-        //     connection_open_ack_try_from_abci_event(abci_event)
-        //         .map_err(IbcEventError::connection)?,
-        // )),
-        // Ok(IbcEventType::OpenConfirmConnection) => Ok(IbcEvent::OpenConfirmConnection(
-        //     connection_open_confirm_try_from_abci_event(abci_event)
-        //         .map_err(IbcEventError::connection)?,
-        // )),
+        Ok(IbcEventType::OpenInitConnection) => Ok(IbcEvent::OpenInitConnection(
+            connection_open_init_try_from_abci_event(abci_event)?,
+        )),
+        Ok(IbcEventType::OpenTryConnection) => Ok(IbcEvent::OpenTryConnection(
+            connection_open_try_try_from_abci_event(abci_event)?,
+        )),
+        Ok(IbcEventType::OpenAckConnection) => Ok(IbcEvent::OpenAckConnection(
+            connection_open_ack_try_from_abci_event(abci_event)?,
+        )),
+        Ok(IbcEventType::OpenConfirmConnection) => Ok(IbcEvent::OpenConfirmConnection(
+            connection_open_confirm_try_from_abci_event(abci_event)?,
+        )),
         // Ok(IbcEventType::OpenInitChannel) => Ok(IbcEvent::OpenInitChannel(
         //     channel_open_init_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
         // )),
@@ -475,12 +477,33 @@ pub fn ibc_event_try_from_abci_event(abci_event: &Event) -> Result<IbcEvent, Typ
     }
 }
 
-fn extract_attributes_from_client_event(event: &Event) -> Result<ClientAttributes, TypesError> {
+pub fn create_client_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ClientEvents::CreateClient, TypesError> {
+    extract_attributes_from_client_event(abci_event).map(ClientEvents::CreateClient)
+}
+
+pub fn update_client_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ClientEvents::UpdateClient, TypesError> {
+    extract_attributes_from_client_event(abci_event).map(|attributes| ClientEvents::UpdateClient {
+        common: attributes,
+        header: extract_header_from_abci_event(abci_event).ok(),
+    })
+}
+
+pub fn upgrade_client_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ClientEvents::UpgradeClient, TypesError> {
+    extract_attributes_from_client_event(abci_event).map(ClientEvents::UpgradeClient)
+}
+
+fn extract_attributes_from_client_event(event: &AbciEvent) -> Result<ClientAttributes, TypesError> {
     let mut attr = ClientAttributes::default();
 
     let decoded_attributes = decode_attributes(event.attributes.clone())?;
     println!("extract: {:?}", decoded_attributes);
-    
+
     for tag in decoded_attributes {
         let key = tag.key.as_str();
         let value = tag.value.as_str();
@@ -488,7 +511,105 @@ fn extract_attributes_from_client_event(event: &Event) -> Result<ClientAttribute
         match key {
             ClientEvents::CLIENT_ID_ATTRIBUTE_KEY => attr.client_id = value.parse()?,
             ClientEvents::CLIENT_TYPE_ATTRIBUTE_KEY => attr.client_type = value.parse()?,
-            ClientEvents::CONSENSUS_HEIGHT_ATTRIBUTE_KEY => attr.consensus_height = value.parse()?,
+            ClientEvents::CONSENSUS_HEIGHT_ATTRIBUTE_KEY => {
+                attr.consensus_height = value.parse()?
+            }
+            _ => {}
+        }
+    }
+
+    Ok(attr)
+}
+
+pub fn extract_header_from_abci_event(event: &AbciEvent) -> Result<AnyHeader, TypesError> {
+    for tag in &event.attributes {
+        if tag.key == HEADER_ATTRIBUTE_KEY {
+            let header_bytes =
+                hex::decode(tag.value.to_lowercase()).map_err(TypesError::hex_decode)?;
+            return decode_header(&header_bytes);
+        }
+    }
+
+    Err(TypesError::abci_event_missing_raw_header())
+}
+
+pub fn connection_open_init_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ConnectionEvents::OpenInit, TypesError> {
+    extract_attributes_from_connection_event(abci_event).map(ConnectionEvents::OpenInit)
+}
+
+pub fn connection_open_try_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ConnectionEvents::OpenTry, TypesError> {
+    extract_attributes_from_connection_event(abci_event).map(ConnectionEvents::OpenTry)
+}
+
+pub fn connection_open_ack_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ConnectionEvents::OpenAck, TypesError> {
+    extract_attributes_from_connection_event(abci_event).map(ConnectionEvents::OpenAck)
+}
+
+pub fn connection_open_confirm_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ConnectionEvents::OpenConfirm, TypesError> {
+    extract_attributes_from_connection_event(abci_event).map(ConnectionEvents::OpenConfirm)
+}
+
+fn extract_attributes_from_connection_event(
+    event: &AbciEvent,
+) -> Result<ConnectionAttributes, TypesError> {
+    let mut attr = ConnectionAttributes::default();
+
+    let decoded_attributes = decode_attributes(event.attributes.clone())?;
+    println!("extract: {:?}", decoded_attributes);
+
+    for tag in decoded_attributes {
+        let key = tag.key.as_str();
+        let value = tag.value.as_str();
+        match key {
+            ConnectionEvents::CONN_ID_ATTRIBUTE_KEY => {
+                attr.connection_id = value.parse().ok();
+            }
+            ConnectionEvents::CLIENT_ID_ATTRIBUTE_KEY => {
+                attr.client_id = value.parse()?;
+            }
+            ConnectionEvents::COUNTERPARTY_CONN_ID_ATTRIBUTE_KEY => {
+                attr.counterparty_connection_id = value.parse().ok();
+            }
+            ConnectionEvents::COUNTERPARTY_CLIENT_ID_ATTRIBUTE_KEY => {
+                attr.counterparty_client_id = value.parse()?;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(attr)
+}
+
+fn channel_extract_attributes_from_tx(event: &AbciEvent) -> Result<ChannelAttributes, TypesError> {
+    let mut attr = ChannelAttributes::default();
+
+    for tag in &event.attributes {
+        let key = tag.key.as_str();
+        let value = tag.value.as_str();
+        match key {
+            ChannelEvents::PORT_ID_ATTRIBUTE_KEY => {
+                attr.port_id = value.parse()?;
+            }
+            ChannelEvents::CHANNEL_ID_ATTRIBUTE_KEY => {
+                attr.channel_id = value.parse().ok();
+            }
+            ChannelEvents::CONNECTION_ID_ATTRIBUTE_KEY => {
+                attr.connection_id = value.parse()?;
+            }
+            ChannelEvents::COUNTERPARTY_PORT_ID_ATTRIBUTE_KEY => {
+                attr.counterparty_port_id = value.parse()?;
+            }
+            ChannelEvents::COUNTERPARTY_CHANNEL_ID_ATTRIBUTE_KEY => {
+                attr.counterparty_channel_id = value.parse().ok();
+            }
             _ => {}
         }
     }

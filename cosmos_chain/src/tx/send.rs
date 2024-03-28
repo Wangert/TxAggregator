@@ -1,10 +1,7 @@
 use std::{thread, time::Duration};
 
 use ibc_proto::{
-    cosmos::{
-        auth::v1beta1::{query_client::QueryClient, BaseAccount},
-        tx::v1beta1::Fee,
-    },
+    cosmos::{auth::v1beta1::query_client::QueryClient, tx::v1beta1::Fee},
     google::protobuf::Any,
 };
 use tendermint_rpc::{
@@ -128,7 +125,7 @@ pub fn wait_for_tx_block_commit(
 
 #[cfg(test)]
 pub mod tx_send_tests {
-    use std::{thread, time::Duration};
+    use std::time::Duration;
 
     use crate::{
         account::Secp256k1Account,
@@ -136,9 +133,13 @@ pub mod tx_send_tests {
         client::{build_create_client_request, CreateClientOptions},
         query::{
             grpc::connect::{grpc_auth_client, grpc_staking_client, grpc_tx_service_client},
-            trpc::{self, connect::tendermint_rpc_client},
+            trpc::connect::tendermint_rpc_client,
         },
-        tx::{estimate::estimate_tx, send::{send_tx_with_fee, wait_for_tx_block_commit}, types::Memo},
+        tx::{
+            estimate::estimate_tx,
+            send::{send_tx_with_fee, wait_for_tx_block_commit},
+            types::Memo,
+        },
     };
     use ibc_proto::{
         google::protobuf::Any, ibc::core::client::v1::MsgCreateClient as IbcMsgCreateClient,
@@ -150,7 +151,7 @@ pub mod tx_send_tests {
         let rt = tokio::runtime::Runtime::new().expect("runtime create error");
 
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let account = Secp256k1Account::new(
@@ -232,7 +233,8 @@ pub mod tx_send_tests {
         };
         println!("Tx_Sync_Response: {:?}", r);
 
-        let tx_sync_result = wait_for_tx_block_commit(&mut trpc_client, &r).expect("wait for tx block commit error!");
+        let tx_sync_result = wait_for_tx_block_commit(&mut trpc_client, &r)
+            .expect("wait for tx block commit error!");
 
         println!("tx_sync_result: {:?}", tx_sync_result);
     }

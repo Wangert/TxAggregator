@@ -1,10 +1,12 @@
 use http::Uri;
-use ibc_proto::{cosmos::{
-    auth::v1beta1::{
-        query_client::QueryClient as AuthQueryClient, BaseAccount, EthAccount, QueryAccountRequest,
+use ibc_proto::{
+    cosmos::{
+        auth::v1beta1::query_client::QueryClient as AuthQueryClient,
+        staking::v1beta1::query_client::QueryClient as StakingQueryClient,
+        tx::v1beta1::service_client::ServiceClient,
     },
-    staking::v1beta1::{query_client::QueryClient as StakingQueryClient, Params as StakingParams}, tx::v1beta1::service_client::ServiceClient,
-}, ibc::core::client::v1::query_client::QueryClient as IbcClientQueryClient};
+    ibc::core::client::v1::query_client::QueryClient as IbcClientQueryClient,
+};
 use log::{info, trace};
 use tonic::transport::Channel;
 

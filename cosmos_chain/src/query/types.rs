@@ -1,5 +1,5 @@
 use tendermint::{
-    abci::{response::DeliverTx, Event},
+    abci::{response::DeliverTx, types::ExecTxResult, Event},
     block::{Commit, Header, Height, Id},
     consensus::Params,
     evidence::List,
@@ -38,7 +38,8 @@ impl From<trpc_block::Response> for Block {
 #[derive(Debug, Clone)]
 pub struct BlockResults {
     pub height: Height,
-    pub txs_results: Option<Vec<DeliverTx>>,
+    // pub txs_results: Option<Vec<DeliverTx>>,
+    pub txs_results: Option<Vec<ExecTxResult>>,
     pub begin_block_events: Option<Vec<Event>>,
     pub end_block_events: Option<Vec<Event>>,
     pub validator_update: Vec<Update>,

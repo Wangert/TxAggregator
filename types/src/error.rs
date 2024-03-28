@@ -1,10 +1,11 @@
 use std::num::ParseIntError;
+use subtle_encoding::Error as SubtleError;
 use utils::encode::error::EncodeError;
 
+use crate::{ibc_core::ics04_channel::error::ChannelError, signer::SignerError};
 use flex_error::{define_error, TraceError};
 use tendermint::error::Error as TmError;
-
-use crate::signer::SignerError;
+use tendermint_proto::Error as TendermintProtoError;
 
 define_error! {
     TypesError {
@@ -52,9 +53,17 @@ define_error! {
         TendermintHash
             [ TraceError<TmError> ]
             |_| { "tendermint hash error" },
+
         // height
         InvalidHeight
-            |_| { "revision height cannot be zero" },
+            { height: String }
+            |e| { format_args!("invalid height {0}", e.height) },
+        InvalidRawHeader
+            [ TraceError<TendermintProtoError> ]
+            | _ | { "invalid raw header" },
+        InvalidRawHeaderSet
+            [ TraceError<TmError> ]
+            | _ | { "invalid raw header" },
         InvalidHeightObject
             { height: String }
             |e| { format_args!("invalid height {0}", e.height) },
@@ -66,6 +75,12 @@ define_error! {
             |e| { format_args!("cannot convert into a `Height` type from string {0}", e.height) },
         ZeroHeight
             |_| { "attempted to parse invalid height 0-0" },
+        UnknownHeaderType
+            { header_type: String }
+            | e | {
+                format_args!("unknown header type: {0}",
+                    e.header_type)
+            },
 
         // ics07_tendermint
         InvalidTrustingPeriod
@@ -130,6 +145,66 @@ define_error! {
             |e| { format_args!("Unable to parse abci event type '{}' into IbcEvent", e.event_type)},
         AttributesDecode
             [ TraceError<EncodeError> ]
-            |_| { "attributes decode error" }
+            |_| { "attributes decode error" },
+
+        // ics04_channel
+        InvalidStringAsSequence
+            { value: String }
+            [ TraceError<core::num::ParseIntError> ]
+            | e | {
+                format_args!(
+                    "String {0} cannot be converted to packet sequence",
+                    e.value)
+            },
+        ChannelError
+            [ ChannelError ]
+            | _ | { "channel error" },
+
+        // ics03_connection
+        ConnectionInvalidIdentifier
+            | _ | { "connection invalid identifier" },
+
+        // other
+        ProtobufDecode
+            [ TraceError<prost::DecodeError> ]
+            | _ | { "protobuf decode error" },
+
+        MissingValidatorSet
+            |_| { "missing validator set" },
+
+        MissingTrustedValidatorSet
+            |_| { "missing trusted validator set" },
+
+        MissingTrustedHeight
+            |_| { "missing trusted height" },
+
+        MissingTrustingPeriod
+            |_| { "missing trusting period" },
+
+        MissingUnbondingPeriod
+            |_| { "missing unbonding period" },
+
+        MissingTrustThreshold
+            |_| { "missing trust threshold" },
+
+        MissingSignedHeader
+            |_| { "missing signed header" },
+            InvalidHeader
+            { reason: String }
+            [ TmError ]
+            |e| { format_args!("invalid header, failed basic validation: {}", e.reason) },
+        MismatchedRevisions
+            {
+                current_revision: u64,
+                update_revision: u64,
+            }
+            |e| {
+                format_args!("the header's current/trusted revision number ({0}) and the update's revision number ({1}) should be the same", e.current_revision, e.update_revision)
+            },
+        HexDecode
+            [ TraceError<SubtleError> ]
+            |e| { format!("hex bytes decode error: {}", e) },
+        AbciEventMissingRawHeader
+            |_| { "abic_event miss raw header" }
     }
 }

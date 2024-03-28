@@ -1,4 +1,4 @@
-use ibc_proto::{google::protobuf::Any, protobuf::Protobuf, ibc::core::client::v1::MsgUpdateClient as IbcMsgUpdateClient};
+use ibc_proto::{google::protobuf::Any, Protobuf, ibc::core::client::v1::MsgUpdateClient as RawMsgUpdateClient};
 use crate::{ibc_core::ics24_host::identifier::ClientId, signer::Signer, error::TypesError};
 
 #[derive(Clone, Debug)]
@@ -18,28 +18,28 @@ impl MsgUpdateClient {
     }
 }
 
-impl Protobuf<IbcMsgUpdateClient> for MsgUpdateClient {}
+impl Protobuf<RawMsgUpdateClient> for MsgUpdateClient {}
 
-impl TryFrom<IbcMsgUpdateClient> for MsgUpdateClient {
+impl TryFrom<RawMsgUpdateClient> for MsgUpdateClient {
     type Error = TypesError;
 
-    fn try_from(raw: IbcMsgUpdateClient) -> Result<Self, Self::Error> {
+    fn try_from(raw: RawMsgUpdateClient) -> Result<Self, Self::Error> {
         Ok(MsgUpdateClient {
             client_id: raw
                 .client_id
                 .parse()
                 .map_err(|_| TypesError::client_id_invalid_format(raw.client_id))?,
-            header: raw.header.ok_or_else(TypesError::header_empty)?,
+            header: raw.client_message.ok_or_else(TypesError::header_empty)?,
             signer: raw.signer.parse().map_err(TypesError::signer)?,
         })
     }
 }
 
-impl From<MsgUpdateClient> for IbcMsgUpdateClient {
+impl From<MsgUpdateClient> for RawMsgUpdateClient {
     fn from(ics_msg: MsgUpdateClient) -> Self {
-        IbcMsgUpdateClient {
+        RawMsgUpdateClient {
             client_id: ics_msg.client_id.to_string(),
-            header: Some(ics_msg.header),
+            client_message: Some(ics_msg.header),
             signer: ics_msg.signer.to_string(),
         }
     }

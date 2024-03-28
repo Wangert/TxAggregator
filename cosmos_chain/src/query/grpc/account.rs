@@ -1,12 +1,12 @@
-use http::Uri;
 use ibc_proto::cosmos::auth::v1beta1::{
-    query_client::QueryClient as AuthQueryClient, BaseAccount, EthAccount, QueryAccountRequest, QueryAccountsRequest,
+    query_client::QueryClient as AuthQueryClient, BaseAccount, EthAccount, QueryAccountRequest,
+    QueryAccountsRequest,
 };
 use log::info;
 use prost::Message;
-use tonic::{codegen::ok, transport::Channel};
+use tonic::transport::Channel;
 
-use crate::{config::default::max_grpc_decoding_size, error::Error};
+use crate::error::Error;
 use tracing::info as tracing_info;
 
 pub async fn query_detail_account(
@@ -97,7 +97,9 @@ pub mod query_grpc_account_tests {
         let file_path =
             "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
-        let account = cosmos_chain.query_detail_account_by_address("cosmos1ugksl34fc63kcqhqhgpzpl4je48sa97zffdfqk").expect("query account error!");
+        let account = cosmos_chain
+            .query_detail_account_by_address("cosmos1ugksl34fc63kcqhqhgpzpl4je48sa97zffdfqk")
+            .expect("query account error!");
 
         println!("Account: {:#?}", account);
     }

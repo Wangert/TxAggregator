@@ -134,17 +134,10 @@ pub fn chain_version(chain_id: &str) -> u64 {
 pub struct ClientId(String);
 
 impl ClientId {
-    /// Builds a new client identifier. Client identifiers are deterministically formed from two
-    /// elements: a prefix derived from the client type `ctype`, and a monotonically increasing
-    /// `counter`; these are separated by a dash "-".
-    ///
-    /// ```
-    /// # use ibc_relayer_types::core::ics24_host::identifier::ClientId;
-    /// # use ibc_relayer_types::core::ics02_client::client_type::ClientType;
+    
     /// let tm_client_id = ClientId::new(ClientType::Tendermint, 0);
     /// assert!(tm_client_id.is_ok());
     /// tm_client_id.map(|id| { assert_eq!(&id, "07-tendermint-0") });
-    /// ```
     pub fn new(client_type: &str, counter: u64) -> Result<Self, TypesError> {
         let id = format!("{client_type}-{counter}");
         Self::from_str(id.as_str())
@@ -182,14 +175,11 @@ impl Default for ClientId {
     }
 }
 
-/// Equality check against string literal (satisfies &ClientId == &str).
-/// ```
-/// use core::str::FromStr;
-/// use ibc_relayer_types::core::ics24_host::identifier::ClientId;
+
 /// let client_id = ClientId::from_str("clientidtwo");
 /// assert!(client_id.is_ok());
 /// client_id.map(|id| {assert_eq!(&id, "clientidtwo")});
-/// ```
+
 impl PartialEq<str> for ClientId {
     fn eq(&self, other: &str) -> bool {
         self.as_str().eq(other)
@@ -237,7 +227,7 @@ impl Default for ClientType {
 pub struct ChannelId(String);
 
 impl ChannelId {
-    const PREFIX: &'static str = "channel-";
+    const CHANNEL_PREFIX: &'static str = "channel-";
 
  
     /// ```
@@ -246,7 +236,7 @@ impl ChannelId {
     /// assert_eq!(chan_id.to_string(), "channel-27");
     /// ```
     pub fn new(counter: u64) -> Self {
-        let id = format!("{}{}", Self::PREFIX, counter);
+        let id = format!("{}{}", Self::CHANNEL_PREFIX, counter);
         Self(id)
     }
 
@@ -285,6 +275,17 @@ impl AsRef<str> for ChannelId {
 impl Default for ChannelId {
     fn default() -> Self {
         Self::new(0)
+    }
+}
+
+/// ```
+/// let channel_id = ChannelId::from_str("channelId-0");
+/// assert!(channel_id.is_ok());
+/// channel_id.map(|id| {assert_eq!(&id, "channelId-0")});
+/// ```
+impl PartialEq<str> for ChannelId {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str().eq(other)
     }
 }
 
@@ -368,4 +369,122 @@ pub fn validate_port_identifier(id: &str) -> Result<(), TypesError> {
 /// alphabetic characters,
 pub fn validate_channel_identifier(id: &str) -> Result<(), TypesError> {
     validate_identifier(id, 8, 64)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct PortId(String);
+
+impl PortId {
+    /// Infallible creation of the well-known transfer port
+    pub fn transfer() -> Self {
+        Self("transfer".to_string())
+    }
+
+    pub fn oracle() -> Self {
+        Self("oracle".to_string())
+    }
+
+    pub fn icqhost() -> Self {
+        Self("icqhost".to_string())
+    }
+
+    /// Get this identifier as a borrowed `&str`
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Get this identifier as a borrowed byte slice
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+/// This implementation provides a `to_string` method.
+impl Display for PortId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for PortId {
+    type Err = TypesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        validate_port_identifier(s).map(|_| Self(s.to_string()))
+    }
+}
+
+impl AsRef<str> for PortId {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl Default for PortId {
+    fn default() -> Self {
+        "defaultPort".to_string().parse().unwrap()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ConnectionId(String);
+
+impl ConnectionId {
+    /// Builds a new connection identifier. Connection identifiers are deterministically formed from
+    /// two elements: a prefix `prefix`, and a monotonically increasing `counter`; these are
+    /// separated by a dash "-". The prefix is currently determined statically (see
+    /// `ConnectionId::prefix()`) so this method accepts a single argument, the `counter`.
+   
+    pub fn new(counter: u64) -> Self {
+        let id = format!("{}-{}", Self::prefix(), counter);
+        Self::from_str(id.as_str()).unwrap()
+    }
+
+    /// Returns the static prefix to be used across all connection identifiers.
+    pub fn prefix() -> &'static str {
+        "connection"
+    }
+
+    /// Get this identifier as a borrowed `&str`
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Get this identifier as a borrowed byte slice
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+/// This implementation provides a `to_string` method.
+impl Display for ConnectionId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for ConnectionId {
+    type Err = TypesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        validate_connection_identifier(s).map(|_| Self(s.to_string()))
+    }
+}
+
+impl Default for ConnectionId {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+/// Equality check against string literal (satisfies &ConnectionId == &str).
+/// ```
+/// let conn_id = ConnectionId::from_str("connectionId-0");
+/// assert!(conn_id.is_ok());
+/// conn_id.map(|id| {assert_eq!(&id, "connectionId-0")});
+/// ```
+impl PartialEq<str> for ConnectionId {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str().eq(other)
+    }
 }

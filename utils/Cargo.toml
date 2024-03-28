@@ -10,8 +10,9 @@ toml = "0.7.5"
 flex-error = "0.4.4"
 serde = { version = "1.0.164", features = ["derive"] }
 bech32 = "0.9.1"
-prost = "0.11.9"
+prost = "0.12"
 num-bigint = { version = "0.4.3", features = ["serde"]}
 num-rational = { version = "0.4.1", features = ["num-bigint", "serde"]}
 subtle-encoding = "0.5.1"
 base64 = "0.21.2"
+tendermint = "0.34.1"

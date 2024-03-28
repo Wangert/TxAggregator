@@ -2,17 +2,17 @@ use crate::tx::types::MEMO_MAX_LEN;
 use flex_error::{define_error, DisplayOnly, TraceError};
 use prost::{DecodeError, EncodeError};
 use serde_json::Error as SerdeJsonError;
-use tendermint_rpc::endpoint::abci_query::AbciQuery;
-use std::io::Error as IOError;
 use tendermint_light_client::components::io::IoError as LightClientIoError;
 use tendermint_light_client::errors::Error as LightClientError;
+use tendermint_proto::Error as TendermintProtoError;
+use tendermint_rpc::endpoint::abci_query::AbciQuery;
 use tendermint_rpc::error::Error as TrpcError;
 use tonic::{transport::Error as TransportError, Status as GrpcStatus};
 use types::error::TypesError;
 use types::signer::SignerError;
 use utils::encode::error::EncodeError as UtilsEncodeError;
 use utils::file::error::FileError;
-use ibc_proto::protobuf::Error as ProtobufError;
+// use tendermint_proto::Error as ProtobufError;
 
 define_error! {
     Error {
@@ -40,10 +40,10 @@ define_error! {
             { payload_type: String }
             [ TraceError<EncodeError> ]
             |e| { format!("error encoding protocol buffer for {}", e.payload_type) },
-        IbcProtobufDecode
+        TendermintProtobufDecode
             { payload_type: String }
-            [ TraceError<ProtobufError> ]
-            |e| { format!("IBC protobuf decode error: {}", e.payload_type) },
+            [ TraceError<TendermintProtoError> ]
+            |e| { format!("Tendermint protobuf decode error: {}", e.payload_type) },
         EmptyBaseAccount
             |_| { "empty BaseAccount within EthAccount" },
         NoAccounts

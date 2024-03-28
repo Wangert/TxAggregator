@@ -1,13 +1,13 @@
-use ibc_proto::{google::protobuf::Any, protobuf::Protobuf};
+use ibc_proto::{google::protobuf::Any, Protobuf};
 use tendermint::{abci::response::Info, block::Height as TmHeight};
 use tendermint_rpc::{Client, HttpClient};
 use types::{
-    ibc_core::ics24_host::{
+    ibc_core::{ics02_client::height::Height, ics24_host::{
         identifier::ClientId,
         path::{ClientConsensusStatePath, ClientStatePath, IBC_QUERY_PATH},
-    },
+    }},
     light_clients::ics07_tendermint::{
-        client_state::ClientState, consensus_state::ConsensusState, height::Height,
+        client_state::ClientState, consensus_state::ConsensusState,
     },
 };
 
@@ -61,7 +61,7 @@ pub async fn abci_query_client_state(
     .await?;
 
     let client_state: ClientState = Protobuf::<Any>::decode_vec(&abci_query.value)
-        .map_err(|e| Error::ibc_protobuf_decode("client_state".to_string(), e))?;
+        .map_err(|e| Error::tendermint_protobuf_decode("client_state".to_string(), e))?;
 
     Ok(client_state)
 }
@@ -89,15 +89,16 @@ pub async fn abci_query_consensus_state(
     .await?;
 
     let consensus_state: ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
-        .map_err(|e| Error::ibc_protobuf_decode("consensus_state".to_string(), e))?;
+        .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
 
     Ok(consensus_state)
 }
 
 #[cfg(test)]
 pub mod abci_tests {
-    use ibc_proto::{google::protobuf::Any, protobuf::Protobuf};
+    use ibc_proto::{google::protobuf::Any, Protobuf};
     use tendermint::block::Height;
+    use tendermint_rpc::{Client, HttpClient};
     use types::{
         ibc_core::ics24_host::{
             identifier::ClientId,
@@ -116,11 +117,48 @@ pub mod abci_tests {
     use super::abci_query;
 
     #[test]
+    pub fn abci_info_works() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime create error");
+
+        let file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
+
+        let mut trpc_client = tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
+
+        let abciinfo = rt.block_on(trpc::abci::abci_info(&mut trpc_client)).expect("abci_info query error!");
+
+        println!("abci_info: {:?}", abciinfo);
+    }
+
+    #[test]
+    pub fn abci_info_o_works() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime create error");
+
+        let trpc_client = HttpClient::new("http://127.0.0.1:26657").unwrap();
+
+        let abciinfo = rt.block_on(trpc_client.abci_info()).unwrap();
+
+        println!("abci_info: {:?}", abciinfo);
+    }
+
+    #[test]
+    pub fn abci_status_works() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime create error");
+
+        let trpc_client = HttpClient::new("http://127.0.0.1:26657").unwrap();
+
+        let abciinfo = rt.block_on(trpc_client.status()).unwrap();
+
+        println!("abci_info: {:?}", abciinfo);
+    }
+
+    #[test]
     pub fn abci_query_consensus_state_works() {
         let rt = tokio::runtime::Runtime::new().expect("runtime create error");
 
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client = tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
@@ -149,7 +187,7 @@ pub mod abci_tests {
         let rt = tokio::runtime::Runtime::new().expect("runtime create error");
 
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let account = Secp256k1Account::new(

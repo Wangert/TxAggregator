@@ -5,15 +5,11 @@ use ibc_proto::{
     cosmos::{
         auth::v1beta1::query_client::QueryClient,
         base::v1beta1::Coin,
-        tx::v1beta1::{
-            service_client::ServiceClient, Fee, SignDoc, SimulateRequest, SimulateResponse, Tx,
-        },
+        tx::v1beta1::{service_client::ServiceClient, Fee, SimulateRequest, SimulateResponse, Tx},
     },
     google::protobuf::Any,
-    ibc::core::client::v1::MsgCreateClient as IbcMsgCreateClient,
 };
 use log::{error, info};
-use serde::{Deserialize, Serialize};
 use tonic::transport::Channel;
 use utils::{
     encode::protobuf,
@@ -24,17 +20,11 @@ use crate::{
     account::Secp256k1Account,
     config::CosmosChainConfig,
     error::Error,
-    query::grpc::{self, account::query_detail_account},
-    tx::{
-        create::{auth_info, auth_info_bytes, tx_body, tx_body_bytes},
-        types::{GasConfig, GasPrice},
-    },
+    query::grpc::account::query_detail_account,
+    tx::types::{GasConfig, GasPrice},
 };
 
-use super::{
-    create::{cosmos_signer_info, create_and_sign_tx},
-    types::Memo,
-};
+use super::{create::create_and_sign_tx, types::Memo};
 
 pub async fn estimate_tx(
     chain_config: &CosmosChainConfig,
@@ -240,14 +230,18 @@ pub mod estimate_tests {
 
     use ibc_proto::google::protobuf::Any;
     use ibc_proto::ibc::core::client::v1::MsgCreateClient as IbcMsgCreateClient;
-    use log::info;
+
     use utils::encode::protobuf;
 
     use crate::{
         account::Secp256k1Account,
         chain::CosmosChain,
         client::{build_create_client_request, CreateClientOptions},
-        query::{grpc::connect::{grpc_staking_client, grpc_tx_service_client, grpc_auth_client}, trpc::connect::{tendermint_rpc_client}}, tx::types::Memo,
+        query::{
+            grpc::connect::{grpc_auth_client, grpc_staking_client, grpc_tx_service_client},
+            trpc::connect::tendermint_rpc_client,
+        },
+        tx::types::Memo,
     };
 
     use super::estimate_tx;
@@ -267,7 +261,8 @@ pub mod estimate_tests {
         .expect("account error!");
 
         let mut trpc_client = tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
-        let mut grpc_staking_client = rt.block_on(grpc_staking_client(&cosmos_chain.config.grpc_addr));
+        let mut grpc_staking_client =
+            rt.block_on(grpc_staking_client(&cosmos_chain.config.grpc_addr));
         // let mut trpc_client = cosmos_chain.tendermint_rpc_client().unwrap();
         // let mut grpc_staking_client = cosmos_chain.grpc_staking_client().unwrap();
 
@@ -300,7 +295,8 @@ pub mod estimate_tests {
             value: protobuf_value,
         };
 
-        let mut grpc_tx_service_client = rt.block_on(grpc_tx_service_client(&cosmos_chain.config.grpc_addr));
+        let mut grpc_tx_service_client =
+            rt.block_on(grpc_tx_service_client(&cosmos_chain.config.grpc_addr));
         let mut grpc_auth_client = rt.block_on(grpc_auth_client(&cosmos_chain.config.grpc_addr));
         let tx_memo = Memo::default();
         let messages = vec![msg];

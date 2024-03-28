@@ -1,4 +1,9 @@
-use crate::ibc_core::ics24_host::identifier::ChannelId;
+use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
+
+use crate::{error::TypesError, ibc_core::{ics02_client::height::Height, ics24_host::identifier::{ChannelId, PortId}}, timestamp::Timestamp};
+use crate::timestamp::Expiry::Expired;
 
 use super::timeout::TimeoutHeight;
 
@@ -93,5 +98,76 @@ impl core::fmt::Display for Packet {
             self.timeout_height,
             self.timeout_timestamp
         )
+    }
+}
+
+/// The sequence number of a packet enforces ordering among packets from the same source.
+#[derive(Copy, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
+pub struct Sequence(u64);
+
+impl FromStr for Sequence {
+    type Err = TypesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from(s.parse::<u64>().map_err(|e| {
+            TypesError::invalid_string_as_sequence(s.to_string(), e)
+        })?))
+    }
+}
+
+impl Sequence {
+    pub const MIN: Self = Self(0);
+    pub const MAX: Self = Self(u64::MAX);
+
+    pub fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn increment(&self) -> Sequence {
+        Sequence(self.0 + 1)
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
+}
+
+impl From<u64> for Sequence {
+    fn from(seq: u64) -> Self {
+        Sequence(seq)
+    }
+}
+
+impl From<Sequence> for u64 {
+    fn from(s: Sequence) -> u64 {
+        s.0
+    }
+}
+
+impl core::fmt::Debug for Sequence {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        self.0.fmt(f)
+    }
+}
+
+impl core::fmt::Display for Sequence {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        self.0.fmt(f)
+    }
+}
+
+impl core::ops::Add<Self> for Sequence {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl core::ops::Add<u64> for Sequence {
+    type Output = Self;
+
+    fn add(self, rhs: u64) -> Self {
+        Self(self.0 + rhs)
     }
 }

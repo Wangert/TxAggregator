@@ -15,7 +15,7 @@ use tendermint_light_client::{
     verifier::ProdVerifier,
 };
 use tendermint_rpc::HttpClient;
-use types::light_clients::ics07_tendermint::{client_state::ClientState, height::Height};
+use types::{ibc_core::ics02_client::height::Height, light_clients::ics07_tendermint::client_state::ClientState};
 
 use crate::{config::CosmosChainConfig, error::Error};
 
@@ -118,7 +118,7 @@ pub fn fetch_light_block(trpc_io: ProdIo, height: Height) -> Result<LightBlock, 
 
 #[cfg(test)]
 pub mod light_client_tests {
-    use types::{light_clients::ics07_tendermint::height::Height, ibc_core::ics24_host::identifier::chain_version};
+    use types::ibc_core::{ics02_client::height::Height, ics24_host::identifier::chain_version};
 
     use crate::{chain::CosmosChain, query::{grpc::connect::grpc_auth_client, trpc}};
 

@@ -9,8 +9,11 @@ use tendermint::block::Height as TmBlockHeight;
 use tendermint_rpc::HttpClient;
 use tonic::transport::Channel;
 use types::{
-    ibc_core::ics24_host::identifier::{ChainId, ClientId},
-    light_clients::ics07_tendermint::{client_state::ClientState, height::Height},
+    ibc_core::{
+        ics02_client::height::Height,
+        ics24_host::identifier::{ChainId, ClientId},
+    },
+    light_clients::ics07_tendermint::client_state::ClientState,
 };
 
 use crate::{

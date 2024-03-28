@@ -2,17 +2,18 @@ use std::time::Duration;
 
 use ibc_proto::ibc::core::client::v1::Height as CoreClientHeight;
 use ibc_proto::ibc::lightclients::tendermint::v1::ClientState as TmClientState;
-use ibc_proto::{google::protobuf::Any, protobuf::Protobuf};
-use prost::{DecodeError, Message};
+use ibc_proto::{google::protobuf::Any, Protobuf};
+use prost::Message;
 use serde::{Deserialize, Serialize};
 use tendermint_light_client_verifier::options::Options;
 
+use crate::ibc_core::ics02_client::height::Height;
 use crate::{
     error::TypesError,
     ibc_core::{ics23_commitment::specs::ProofSpecs, ics24_host::identifier::ChainId},
 };
 
-use super::{height::Height, trust_level::TrustLevel};
+use super::trust_level::TrustLevel;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientState {
@@ -241,7 +242,7 @@ impl From<ClientState> for Any {
     fn from(client_state: ClientState) -> Self {
         Any {
             type_url: TENDERMINT_CLIENT_STATE_TYPE_URL.to_string(),
-            value: Protobuf::<TmClientState>::encode_vec(&client_state),
+            value: Protobuf::<TmClientState>::encode_vec(client_state),
         }
     }
 }

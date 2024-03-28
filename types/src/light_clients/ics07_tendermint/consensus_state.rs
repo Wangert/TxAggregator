@@ -1,12 +1,11 @@
-use ibc::core::{
-    ics02_client::client_type::ClientType, ics23_commitment::commitment::CommitmentRoot,
-};
+use ibc::core::commitment_types::commitment::CommitmentRoot;
 use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::lightclients::tendermint::v1::ConsensusState as TmConsensusState;
-use ibc_proto::protobuf::Protobuf;
+use ibc_proto::Protobuf;
 use serde::{Deserialize, Serialize};
 use tendermint::{Hash, time::Time, hash::Algorithm};
 use tendermint_proto::google::protobuf as TmProtobuf;
+use prost::Message;
 
 use crate::error::TypesError;
 
@@ -96,7 +95,6 @@ impl TryFrom<Any> for ConsensusState {
     fn try_from(raw: Any) -> Result<Self, Self::Error> {
         use bytes::Buf;
         use core::ops::Deref;
-        use prost::Message;
 
         fn decode_consensus_state<B: Buf>(buf: B) -> Result<ConsensusState, TypesError> {
             TmConsensusState::decode(buf)
@@ -117,7 +115,7 @@ impl From<ConsensusState> for Any {
     fn from(consensus_state: ConsensusState) -> Self {
         Any {
             type_url: TENDERMINT_CONSENSUS_STATE_TYPE_URL.to_string(),
-            value: Protobuf::<TmConsensusState>::encode_vec(&consensus_state),
+            value: Protobuf::<TmConsensusState>::encode_vec(consensus_state),
         }
     }
 }
