@@ -509,8 +509,8 @@ fn extract_attributes_from_client_event(event: &AbciEvent) -> Result<ClientAttri
         let value = tag.value.as_str();
         // println!("key: {}; value: {}", key, value);
         match key {
-            ClientEvents::CLIENT_ID_ATTRIBUTE_KEY => attr.client_id = value.parse()?,
-            ClientEvents::CLIENT_TYPE_ATTRIBUTE_KEY => attr.client_type = value.parse()?,
+            ClientEvents::CLIENT_ID_ATTRIBUTE_KEY => attr.client_id = value.parse().map_err(TypesError::ics24_host)?,
+            ClientEvents::CLIENT_TYPE_ATTRIBUTE_KEY => attr.client_type = value.parse().map_err(TypesError::ics24_host)?,
             ClientEvents::CONSENSUS_HEIGHT_ATTRIBUTE_KEY => {
                 attr.consensus_height = value.parse()?
             }
@@ -573,13 +573,13 @@ fn extract_attributes_from_connection_event(
                 attr.connection_id = value.parse().ok();
             }
             ConnectionEvents::CLIENT_ID_ATTRIBUTE_KEY => {
-                attr.client_id = value.parse()?;
+                attr.client_id = value.parse().map_err(TypesError::ics24_host)?;
             }
             ConnectionEvents::COUNTERPARTY_CONN_ID_ATTRIBUTE_KEY => {
                 attr.counterparty_connection_id = value.parse().ok();
             }
             ConnectionEvents::COUNTERPARTY_CLIENT_ID_ATTRIBUTE_KEY => {
-                attr.counterparty_client_id = value.parse()?;
+                attr.counterparty_client_id = value.parse().map_err(TypesError::ics24_host)?;
             }
             _ => {}
         }
@@ -596,16 +596,16 @@ fn channel_extract_attributes_from_tx(event: &AbciEvent) -> Result<ChannelAttrib
         let value = tag.value.as_str();
         match key {
             ChannelEvents::PORT_ID_ATTRIBUTE_KEY => {
-                attr.port_id = value.parse()?;
+                attr.port_id = value.parse().map_err(TypesError::ics24_host)?;
             }
             ChannelEvents::CHANNEL_ID_ATTRIBUTE_KEY => {
                 attr.channel_id = value.parse().ok();
             }
             ChannelEvents::CONNECTION_ID_ATTRIBUTE_KEY => {
-                attr.connection_id = value.parse()?;
+                attr.connection_id = value.parse().map_err(TypesError::ics24_host)?;
             }
             ChannelEvents::COUNTERPARTY_PORT_ID_ATTRIBUTE_KEY => {
-                attr.counterparty_port_id = value.parse()?;
+                attr.counterparty_port_id = value.parse().map_err(TypesError::ics24_host)?;
             }
             ChannelEvents::COUNTERPARTY_CHANNEL_ID_ATTRIBUTE_KEY => {
                 attr.counterparty_channel_id = value.parse().ok();

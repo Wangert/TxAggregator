@@ -7,5 +7,23 @@ define_error! {
         ClientSubscriptionFailed
             [ TraceError<TendermintRpcError> ]
             |_| { "failed to run previous WebSocket driver to completion" },
+        CollectEventsError
+            |_| { "collect events error" },
+        SubscriptionCancelled
+            [ TraceError<TendermintRpcError> ]
+            |_| { "subscription cancelled" },
+    }
+}
+
+impl WsError {
+    pub fn canceled_or_generic(e: TendermintRpcError) -> Self {
+        use tendermint_rpc::error::ErrorDetail;
+
+        match e.detail() {
+            ErrorDetail::Server(detail) if detail.reason.contains("subscription was cancelled") => {
+                Self::subscription_cancelled(e)
+            }
+            _ => Self::collect_events_error(),
+        }
     }
 }

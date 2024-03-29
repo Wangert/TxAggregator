@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use tendermint::Time;
 use time::OffsetDateTime;
 
+pub const ZERO_DURATION: Duration = Duration::from_secs(0);
+
 #[derive(
     Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]

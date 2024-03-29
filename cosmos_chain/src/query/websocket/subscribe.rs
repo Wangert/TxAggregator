@@ -1,11 +1,18 @@
 use std::sync::Arc;
 
-use futures::{stream::select_all, Stream, StreamExt};
-use log::trace;
+use futures::{
+    stream::{self, select_all},
+    Stream, StreamExt, TryStreamExt,
+};
 use tendermint_rpc::{event::Event, query::Query, SubscriptionClient, WebSocketClient};
 use tokio::{runtime::Runtime, task::JoinHandle};
+use tracing::trace;
+use types::ibc_core::ics24_host::identifier::ChainId;
 
-use crate::query::websocket::error::WsError;
+use crate::query::websocket::{
+    collect_event::{self, collect_events},
+    error::WsError,
+};
 
 use tendermint_rpc::error::Error as TendermintRpcError;
 
@@ -71,9 +78,22 @@ impl EventSubscriptions {
         //     Err(e) => { println!("{}", e); panic!("error!!"); }
         // }
 
+        let subs = core::mem::replace(&mut self.subs, Box::new(stream::empty()));
+
+        let chain_id = ChainId::default();
+        let mut events = subs
+            .map_ok(move |rpc_event| {
+                trace!(chain = %chain_id, "received an RPC event: {}", rpc_event.query);
+                collect_events(&chain_id, rpc_event)
+            })
+            .map_err(WsError::canceled_or_generic)
+            .try_flatten();
+
+
+
         let mut ev_count = 100;
         println!("99999999999999999");
-        while let Some(res) = self.subs.next().await {
+        while let Some(res) = events.next().await {
             match res {
                 Ok(event) => println!("Got event: {:?}", event),
                 Err(e) => panic!("{}", e),

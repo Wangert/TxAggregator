@@ -251,7 +251,7 @@ pub mod estimate_tests {
         let rt = tokio::runtime::Runtime::new().expect("runtime create error");
 
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let account = Secp256k1Account::new(

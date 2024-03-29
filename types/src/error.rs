@@ -2,7 +2,7 @@ use std::num::ParseIntError;
 use subtle_encoding::Error as SubtleError;
 use utils::encode::error::EncodeError;
 
-use crate::{ibc_core::ics04_channel::error::ChannelError, signer::SignerError};
+use crate::{ibc_core::{ics04_channel::error::ChannelError, ics24_host::error::IdentifierError}, signer::SignerError};
 use flex_error::{define_error, TraceError};
 use tendermint::error::Error as TmError;
 use tendermint_proto::Error as TendermintProtoError;
@@ -81,6 +81,10 @@ define_error! {
                 format_args!("unknown header type: {0}",
                     e.header_type)
             },
+        
+        Ics24Host
+            [ TraceError<IdentifierError> ]
+            |e| { format!("Ics24 Host Error: {}", e) },
 
         // ics07_tendermint
         InvalidTrustingPeriod
@@ -104,37 +108,6 @@ define_error! {
         CommitmentProofDecodingFailed
             [ TraceError<prost::DecodeError> ]
             |_| { "failed to decode commitment proof" },
-
-        // ics24_host identifier
-        IdContainSeparator
-            { id : String }
-            | e | { format_args!("identifier {0} cannot contain separator '/'", e.id) },
-        IdInvalidLength
-            {
-                id: String,
-                length: usize,
-                min: usize,
-                max: usize,
-            }
-            |e| { format_args!("identifier {0} has invalid length {1} must be between {2}-{3} characters", e.id, e.length, e.min, e.max) },
-        IdInvalidCharacter
-            { id: String }
-            |e| { format_args!("identifier {0} must only contain alphanumeric characters or `.`, `_`, `+`, `-`, `#`, - `[`, `]`, `<`, `>`", e.id) },
-        IdEmpty
-            |_| { "identifier cannot be empty" },
-        HeaderEmpty
-            |_| { "empty block header" },
-        ChainIdInvalidFormat
-            { id: String }
-            |e| { format_args!("chain identifiers are expected to be in epoch format {0}", e.id) },
-        ClientIdInvalidFormat
-            { id: String }
-            |e| { format_args!("client identifiers are expected to be in epoch format {0}", e.id) },
-        UnknownClientType
-            { client_type: String }
-            |e| { format_args!("unknown client type: {0}", e.client_type) },
-        InvalidCounterpartyChannelId
-            |_| { "Invalid channel id in counterparty" },
 
         // ibc_events
         IncorrectEventType
@@ -205,6 +178,9 @@ define_error! {
             [ TraceError<SubtleError> ]
             |e| { format!("hex bytes decode error: {}", e) },
         AbciEventMissingRawHeader
-            |_| { "abic_event miss raw header" }
+            |_| { "abic_event miss raw header" },
+
+        RawMsgUpdateClientHeaderEmpty
+            |_| { "raw msg update client header empty" },
     }
 }
