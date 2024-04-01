@@ -1,3 +1,4 @@
+use crate::tx::error::TxError;
 use crate::tx::types::MEMO_MAX_LEN;
 use flex_error::{define_error, DisplayOnly, TraceError};
 use prost::{DecodeError, EncodeError};
@@ -9,6 +10,7 @@ use tendermint_rpc::endpoint::abci_query::AbciQuery;
 use tendermint_rpc::error::Error as TrpcError;
 use tonic::{transport::Error as TransportError, Status as GrpcStatus};
 use types::error::TypesError;
+use types::ibc_events::IbcEvent;
 use types::signer::SignerError;
 use utils::encode::error::EncodeError as UtilsEncodeError;
 use utils::file::error::FileError;
@@ -16,6 +18,18 @@ use utils::file::error::FileError;
 
 define_error! {
     Error {
+        TxResponse
+            { event: String }
+            |e| {
+                format!("tx response event consists of an error: {}",
+                    e.event)
+            },
+        InvalidEvent
+            { event: IbcEvent }
+            |e| {
+                format!("a connection object cannot be built from {}",
+                    e.event)
+            },
         EmptyQueryAccount
             { address: String }
             |e| { format!("Query/Account RPC returned an empty account for address: {}", e.address) },
@@ -153,7 +167,21 @@ define_error! {
         IbcEvent
             { payload: String }
             [ TraceError<TypesError> ]
-            |e| { format!("ibc event error: {}", e.payload) }
+            |e| { format!("ibc event error: {}", e.payload) },
+        
+        // connection
+        MissingConnectionInitEvent
+            |_| { "missing connection openinit event" },
+        
+        // tx
+        Tx 
+            [ TraceError<TxError> ]
+            |e| { format!("tx error: {}", e) },
+
+        // memo
+        Memo
+            [ TraceError<MemoError> ]
+            |e| { format!("memo error: {}", e) },
 
     }
 }

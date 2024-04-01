@@ -5,3 +5,4 @@ pub mod error;
 pub mod ibc_events;
 pub mod timestamp;
 pub mod serializers;
+pub mod message;

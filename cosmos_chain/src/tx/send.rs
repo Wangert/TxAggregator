@@ -1,15 +1,15 @@
 use std::{thread, time::Duration};
 
 use ibc_proto::{
-    cosmos::{auth::v1beta1::query_client::QueryClient, tx::v1beta1::Fee},
+    cosmos::{auth::v1beta1::query_client::QueryClient, tx::v1beta1::{service_client::ServiceClient, Fee}},
     google::protobuf::Any,
 };
 use tendermint_rpc::{
-    endpoint::broadcast::tx_async::Response as TxAsyncResponse,
-    endpoint::broadcast::tx_sync::Response as TxSyncResponse, Client, HttpClient,
+    endpoint::{broadcast::{tx_async::Response as TxAsyncResponse, tx_sync::Response as TxSyncResponse}, tx::Response},
+    Client, HttpClient,
 };
 use tonic::transport::Channel;
-use types::ibc_events::{ibc_event_try_from_abci_event, IbcEvent};
+use types::{ibc_core::{ics02_client::height::Height, ics24_host::identifier::ChainId}, ibc_events::{ibc_event_try_from_abci_event, IbcEvent, IbcEventWithHeight}};
 use utils::encode::protobuf;
 
 use crate::{
@@ -20,11 +20,24 @@ use crate::{
 };
 
 use super::{
-    create::create_and_sign_tx,
-    types::{Memo, TxStatus, TxSyncResult},
+    create::create_and_sign_tx, estimate::estimate_tx, types::{Memo, TxStatus, TxSyncResult}
 };
 
 const WAIT_BACKOFF: Duration = Duration::from_millis(300);
+
+pub async fn send_tx(chain_config: &CosmosChainConfig,
+    trpc_client: &mut HttpClient,
+    grpc_query_client: &mut QueryClient<Channel>,
+    grpc_service_client: &mut ServiceClient<Channel>,
+    key_account: &Secp256k1Account,
+    tx_memo: &Memo,
+    messages: &[Any]) -> Result<TxSyncResult, Error> {
+        let fee = estimate_tx(chain_config, grpc_query_client, grpc_service_client, key_account, tx_memo, messages).await?;
+        let tx_response = send_tx_with_fee(trpc_client, grpc_query_client, chain_config, key_account, tx_memo, messages, fee).await?;
+        let tx_result = wait_for_tx_block_commit(&ChainId::from_string(&chain_config.chain_id), trpc_client, &tx_response, messages.len()).await?;
+        
+        Ok(tx_result)
+    }
 
 pub async fn send_tx_with_fee(
     trpc_client: &HttpClient,
@@ -73,30 +86,31 @@ pub async fn broadcast_tx_async(
     Ok(response)
 }
 
-pub fn wait_for_tx_block_commit(
+pub async fn wait_for_tx_block_commit(
+    chain_id: &ChainId,
     trpc_client: &mut HttpClient,
     tx_sync_response: &TxSyncResponse,
+    msg_count: usize,
 ) -> Result<TxSyncResult, Error> {
     if tx_sync_response.code.is_err() {
         Err(Error::tx_commit("tx sync response code is err".to_string()))
     } else {
-        let rt = tokio::runtime::Runtime::new().unwrap();
         loop {
-            let tx_response_result = rt.block_on(tx(trpc_client, tx_sync_response.hash, false));
+            let tx_response_result = tx(trpc_client, tx_sync_response.hash, false).await;
 
             // println!("[wait_for_tx_block_commit]: tx_response_result=={:?}", tx_response_result);
 
             if tx_response_result.is_ok() {
                 let tx_response = tx_response_result.unwrap();
-                let mut events: Vec<IbcEvent> = vec![];
-
+                let height = Height::new(chain_id.version(), u64::from(tx_response.height)).unwrap();
+                let mut events: Vec<IbcEventWithHeight> = vec![];
                 if tx_response.tx_result.code.is_err() {
                     events = vec![
-                        IbcEvent::CosmosChainError(format!(
+                        IbcEventWithHeight::new(IbcEvent::CosmosChainError(format!(
                             "deliver_tx for {} reports error: code={:?}, log={:?}",
                             tx_response.hash, tx_response.tx_result.code, tx_response.tx_result.log
-                        ));
-                        1
+                        )), height);
+                        msg_count
                     ];
                 } else {
                     events = tx_response
@@ -106,7 +120,7 @@ pub fn wait_for_tx_block_commit(
                         .flat_map(|event| {
                             ibc_event_try_from_abci_event(event).map_err(|e| {
                                 Error::ibc_event("ibc_event_try_from_abci_event".to_string(), e)
-                            })
+                            }).ok().map(|ibc_event| IbcEventWithHeight::new(ibc_event, height))
                         })
                         .collect::<Vec<_>>();
                 }
@@ -142,14 +156,13 @@ pub mod tx_send_tests {
         },
     };
     use ibc_proto::{
-        google::protobuf::Any, ibc::core::client::v1::MsgCreateClient as IbcMsgCreateClient,
+        cosmos, google::protobuf::Any, ibc::core::client::v1::MsgCreateClient as IbcMsgCreateClient
     };
+    use types::ibc_core::ics24_host::identifier::ChainId;
     use utils::encode::protobuf;
 
     #[test]
     pub fn send_tx_with_fee_wokrs() {
-        let rt = tokio::runtime::Runtime::new().expect("runtime create error");
-
         let file_path =
             "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
@@ -160,9 +173,8 @@ pub mod tx_send_tests {
         )
         .expect("account error!");
 
-        let mut trpc_client = tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
-        let mut grpc_staking_client =
-            rt.block_on(grpc_staking_client(&cosmos_chain.config.grpc_addr));
+        let mut trpc_client = cosmos_chain.tendermint_rpc_client();
+        let mut grpc_staking_client = cosmos_chain.grpc_staking_client();
         // let mut trpc_client = cosmos_chain.tendermint_rpc_client().unwrap();
         // let mut grpc_staking_client = cosmos_chain.grpc_staking_client().unwrap();
 
@@ -195,47 +207,52 @@ pub mod tx_send_tests {
             value: protobuf_value,
         };
 
-        let mut grpc_tx_service_client =
-            rt.block_on(grpc_tx_service_client(&cosmos_chain.config.grpc_addr));
-        let mut grpc_auth_client = rt.block_on(grpc_auth_client(&cosmos_chain.config.grpc_addr));
-        let tx_memo = Memo::default();
         let messages = vec![msg];
+        let tx_results = cosmos_chain.send_messages_and_wait_commit(messages).expect("send messages error!");
 
-        println!("execute estimate_tx!!!");
-        let fee = rt.block_on(estimate_tx(
-            &src_chain_config,
-            &mut grpc_auth_client,
-            &mut grpc_tx_service_client,
-            &account,
-            &tx_memo,
-            &messages,
-        ));
+        println!("tx_results: {:?}", tx_results);
 
-        let fee = match fee {
-            Ok(fee) => fee,
-            Err(e) => panic!("panic {}", e),
-        };
+        // let mut grpc_tx_service_client =
+        //     rt.block_on(grpc_tx_service_client(&cosmos_chain.config.grpc_addr));
+        // let mut grpc_auth_client = rt.block_on(grpc_auth_client(&cosmos_chain.config.grpc_addr));
+        // let tx_memo = Memo::default();
+        // let messages = vec![msg];
 
-        println!("execute tx!!!");
-        let tx_sync_resp = rt.block_on(send_tx_with_fee(
-            &trpc_client,
-            &mut grpc_auth_client,
-            &src_chain_config,
-            &account,
-            &tx_memo,
-            &messages,
-            fee,
-        ));
+        // println!("execute estimate_tx!!!");
+        // let fee = rt.block_on(estimate_tx(
+        //     &src_chain_config,
+        //     &mut grpc_auth_client,
+        //     &mut grpc_tx_service_client,
+        //     &account,
+        //     &tx_memo,
+        //     &messages,
+        // ));
 
-        let r = match tx_sync_resp {
-            Ok(r) => r,
-            Err(e) => panic!("panic {}", e),
-        };
-        println!("Tx_Sync_Response: {:?}", r);
+        // let fee = match fee {
+        //     Ok(fee) => fee,
+        //     Err(e) => panic!("panic {}", e),
+        // };
 
-        let tx_sync_result = wait_for_tx_block_commit(&mut trpc_client, &r)
-            .expect("wait for tx block commit error!");
+        // println!("execute tx!!!");
+        // let tx_sync_resp = rt.block_on(send_tx_with_fee(
+        //     &trpc_client,
+        //     &mut grpc_auth_client,
+        //     &src_chain_config,
+        //     &account,
+        //     &tx_memo,
+        //     &messages,
+        //     fee,
+        // ));
 
-        println!("tx_sync_result: {:?}", tx_sync_result);
+        // let r = match tx_sync_resp {
+        //     Ok(r) => r,
+        //     Err(e) => panic!("panic {}", e),
+        // };
+        // println!("Tx_Sync_Response: {:?}", r);
+
+        // let tx_sync_result = wait_for_tx_block_commit(&ChainId::from_string(&cosmos_chain.config.chain_id), &mut trpc_client, &r, messages.len())
+        //     .expect("wait for tx block commit error!");
+
+        // println!("tx_sync_result: {:?}", tx_sync_result);
     }
 }

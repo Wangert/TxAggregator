@@ -1,6 +1,6 @@
 use flex_error::{define_error, TraceError};
 
-use crate::ibc_core::{ics23_commitment::error::CommitmentError, ics24_host::{error::IdentifierError, identifier::ConnectionId}};
+use crate::{ibc_core::{ics23_commitment::error::CommitmentError, ics24_host::{error::IdentifierError, identifier::{ChainId, ConnectionId}}}, signer::SignerError};
 
 define_error! {
     ConnectionError {
@@ -42,5 +42,13 @@ define_error! {
         BadPrefix
             [ TraceError<CommitmentError> ]
             | e | { format!("bad prefix: {}", e) },
+        Signer
+            [ SignerError ]
+            | _ | { "invalid signer" },
+        ChainQuery
+            { chain_id: ChainId }
+            |e| {
+                format!("failed during a query to chain id {0}", e.chain_id)
+            },
     }
 }

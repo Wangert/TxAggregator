@@ -13,6 +13,7 @@ use secp256k1::{ecdsa::Signature, Message, PublicKey, SecretKey};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::Sha256;
 use subtle_encoding::base64;
+use types::signer::Signer;
 use utils::encode::{bech32, protobuf};
 
 use crate::error::Error;

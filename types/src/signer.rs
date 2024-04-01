@@ -4,7 +4,7 @@ use derive_more::Display;
 use flex_error::define_error;
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Display)]
+#[derive(Debug, Clone, Serialize, Deserialize, Display, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Signer(String);
 
 impl Default for Signer {

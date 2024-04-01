@@ -31,6 +31,9 @@ pub struct CosmosChainConfig {
 
     pub memo_prefix: String,
 
+    pub max_msg_num: u64,
+    pub max_tx_size: u64,
+
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

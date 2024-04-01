@@ -30,6 +30,10 @@ fee_granter = ""
 
 memo_prefix = ""
 
+# tx
+max_msg_num = 4
+max_tx_size = 1048576
+
 # Set clock dirft time (s)
 clock_drift = 5
 max_block_time = 30
