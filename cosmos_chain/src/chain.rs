@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use http::Uri;
 use ibc_proto::{
     cosmos::{
@@ -8,32 +7,35 @@ use ibc_proto::{
         },
         staking::v1beta1::{
             query_client::QueryClient as StakingQueryClient, Params as StakingParams,
-        }, tx::v1beta1::service_client::ServiceClient as TxServiceClient,
+        },
+        tx::v1beta1::service_client::ServiceClient as TxServiceClient,
     },
     google::protobuf::Any,
+    ibc::core::connection::v1::query_client::QueryClient as ConnectionQueryClient,
 };
 use log::{error, info, trace};
 use prost::Message;
+use std::sync::Arc;
 use tendermint::abci::response::Info;
 use tendermint_rpc::{Client, HttpClient};
 use tokio::runtime::Runtime;
 use tonic::transport::Channel;
 use tracing::{info as tracing_info, info_span};
 use types::{
-    ibc_core::{ics03_connection::version::Version, ics24_host::identifier::ChainId},
+    ibc_core::{
+        ics03_connection::{connection::ConnectionEnd, version::Version},
+        ics23_commitment::{commitment::CommitmentPrefix, merkle_tree::MerkleProof},
+        ics24_host::identifier::{ChainId, ConnectionId},
+    },
     ibc_events::{IbcEvent, IbcEventWithHeight},
 };
 
 use crate::{
-    account::{self, Secp256k1Account},
-    config::{default::max_grpc_decoding_size, load_cosmos_chain_config, CosmosChainConfig},
-    error::Error,
-    query::{
+    account::{self, Secp256k1Account}, common::QueryHeight, config::{default::max_grpc_decoding_size, load_cosmos_chain_config, CosmosChainConfig}, error::Error, query::{
         grpc::{self, account::query_detail_account},
         trpc,
         types::{Block, BlockResults},
-    },
-    tx::{batch::batch_messages, send::send_tx, types::Memo},
+    }, tx::{batch::batch_messages, send::send_tx, types::Memo}
 };
 
 #[derive(Debug, Clone)]
@@ -83,6 +85,11 @@ impl CosmosChain {
         vec![Version::default()]
     }
 
+    pub fn query_commitment_prefix(&self) -> Result<CommitmentPrefix, Error> {
+        CommitmentPrefix::try_from(self.config.store_prefix.as_bytes().to_vec())
+            .map_err(Error::commitment_error)
+    }
+
     pub fn send_messages_and_wait_commit(
         &self,
         msgs: Vec<Any>,
@@ -109,7 +116,7 @@ impl CosmosChain {
         let mut ibc_events_with_height = vec![];
         let mut trpc_client = self.tendermint_rpc_client().clone();
         let mut grpc_service_client = self.grpc_tx_sevice_client().clone();
-    
+
         for msg_batch in msg_batches {
             let tx_results = rt.block_on(send_tx(
                 &self.config,
@@ -123,7 +130,7 @@ impl CosmosChain {
 
             ibc_events_with_height.extend(tx_results.events);
         }
-        
+
         Ok(ibc_events_with_height)
     }
     // pub fn tendermint_rpc_connect(&mut self) {
@@ -154,13 +161,38 @@ impl CosmosChain {
             .block_on(grpc::connect::grpc_staking_client(&self.config.grpc_addr))
     }
 
-    pub fn grpc_tx_sevice_client(&self) -> TxServiceClient<Channel> {
-        self.rt.block_on(grpc::connect::grpc_tx_service_client(&self.config.grpc_addr))
+    pub fn grpc_connection_client(&self) -> ConnectionQueryClient<Channel> {
+        self.rt.block_on(grpc::connect::grpc_connection_client(
+            &self.config.grpc_addr,
+        ))
     }
 
-    pub async fn query_abci_info(&mut self) -> Result<Info, Error> {
+    pub fn grpc_tx_sevice_client(&self) -> TxServiceClient<Channel> {
+        self.rt.block_on(grpc::connect::grpc_tx_service_client(
+            &self.config.grpc_addr,
+        ))
+    }
+
+    pub fn query_abci_info(&mut self) -> Result<Info, Error> {
         let mut trpc = self.tendermint_rpc_client();
-        trpc::abci::abci_info(&mut trpc).await
+        self.rt.block_on(trpc::abci::abci_info(&mut trpc))
+    }
+
+    pub fn query_connection(
+        &mut self,
+        connection_id: ConnectionId,
+        height_query: QueryHeight,
+        prove: bool,
+    ) -> Result<(ConnectionEnd, Option<MerkleProof>), Error> {
+        let mut grpc_client = self.grpc_connection_client().clone();
+        let mut trpc_client = self.tendermint_rpc_client().clone();
+        self.rt.block_on(grpc::connection::query_connection(
+            &mut grpc_client,
+            &mut trpc_client,
+            connection_id,
+            height_query,
+            prove,
+        ))
     }
 
     // pub async fn grpc_connect(&mut self) {

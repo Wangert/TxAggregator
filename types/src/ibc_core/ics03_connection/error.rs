@@ -50,5 +50,7 @@ define_error! {
             |e| {
                 format!("failed during a query to chain id {0}", e.chain_id)
             },
+        MissingConnectionIdFromEvent
+            |_| { "cannot extract connection_id from result" },
     }
 }

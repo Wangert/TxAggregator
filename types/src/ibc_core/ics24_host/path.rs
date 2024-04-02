@@ -1,6 +1,6 @@
 use derive_more::Display;
 
-use super::identifier::ClientId;
+use super::identifier::{ChannelId, ClientId, ConnectionId, PortId};
 
 /// ABCI Query path for the IBC sub-store
 pub const IBC_QUERY_PATH: &str = "store/ibc/key";
@@ -25,3 +25,27 @@ pub struct ClientConsensusStatePath {
     pub epoch: u64,
     pub height: u64,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
+#[display(fmt = "connections/{_0}")]
+pub struct ConnectionsPath(pub ConnectionId);
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
+#[display(fmt = "ports/{_0}")]
+pub struct PortsPath(pub PortId);
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
+#[display(fmt = "channelEnds/ports/{_0}/channels/{_1}")]
+pub struct ChannelEndsPath(pub PortId, pub ChannelId);
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
+#[display(fmt = "nextSequenceSend/ports/{_0}/channels/{_1}")]
+pub struct SeqSendsPath(pub PortId, pub ChannelId);
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
+#[display(fmt = "nextSequenceRecv/ports/{_0}/channels/{_1}")]
+pub struct SeqRecvsPath(pub PortId, pub ChannelId);
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
+#[display(fmt = "nextSequenceAck/ports/{_0}/channels/{_1}")]
+pub struct SeqAcksPath(pub PortId, pub ChannelId);

@@ -5,6 +5,8 @@ use tendermint::abci;
 
 use crate::{ibc_core::ics24_host::identifier::{ClientId, ConnectionId}, ibc_events::{IbcEvent, IbcEventType}};
 
+use super::error::ConnectionError;
+
 pub const CONN_ID_ATTRIBUTE_KEY: &str = "connection_id";
 pub const CLIENT_ID_ATTRIBUTE_KEY: &str = "client_id";
 pub const COUNTERPARTY_CONN_ID_ATTRIBUTE_KEY: &str = "counterparty_connection_id";
@@ -207,4 +209,16 @@ impl From<OpenConfirm> for abci::Event {
             attributes: v.0.into(),
         }
     }
+}
+
+
+pub fn extract_connection_id(event: &IbcEvent) -> Result<&ConnectionId, ConnectionError> {
+    match event {
+        IbcEvent::OpenInitConnection(ev) => ev.connection_id(),
+        IbcEvent::OpenTryConnection(ev) => ev.connection_id(),
+        IbcEvent::OpenAckConnection(ev) => ev.connection_id(),
+        IbcEvent::OpenConfirmConnection(ev) => ev.connection_id(),
+        _ => None,
+    }
+    .ok_or_else(ConnectionError::missing_connection_id_from_event)
 }

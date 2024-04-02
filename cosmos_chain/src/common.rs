@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tendermint::block::Height as TmBlockHeight;
 use tendermint_rpc::HttpClient;
-use tonic::transport::Channel;
+use tonic::{metadata::AsciiMetadataValue, transport::Channel};
 use types::{
     ibc_core::{
         ics02_client::height::Height,
@@ -37,6 +37,19 @@ impl From<QueryHeight> for TmBlockHeight {
             QueryHeight::Latest => Self::from(0_u32),
             QueryHeight::Specific(height) => Self::from(height),
         }
+    }
+}
+
+impl TryFrom<QueryHeight> for AsciiMetadataValue {
+    type Error = Error;
+
+    fn try_from(height_query: QueryHeight) -> Result<Self, Self::Error> {
+        let height = match height_query {
+            QueryHeight::Latest => 0u64,
+            QueryHeight::Specific(height) => height.revision_height(),
+        };
+
+        str::parse(&height.to_string()).map_err(Error::invalid_metadata)
     }
 }
 

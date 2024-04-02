@@ -8,8 +8,12 @@ use tendermint_light_client::errors::Error as LightClientError;
 use tendermint_proto::Error as TendermintProtoError;
 use tendermint_rpc::endpoint::abci_query::AbciQuery;
 use tendermint_rpc::error::Error as TrpcError;
+use tonic::metadata::errors::InvalidMetadataValue;
 use tonic::{transport::Error as TransportError, Status as GrpcStatus};
 use types::error::TypesError;
+use types::ibc_core::ics03_connection::error::ConnectionError;
+use types::ibc_core::ics23_commitment::error::CommitmentError;
+use types::ibc_core::ics24_host::identifier::ConnectionId;
 use types::ibc_events::IbcEvent;
 use types::signer::SignerError;
 use utils::encode::error::EncodeError as UtilsEncodeError;
@@ -172,6 +176,14 @@ define_error! {
         // connection
         MissingConnectionInitEvent
             |_| { "missing connection openinit event" },
+        ConnectionError
+            [ TraceError<ConnectionError> ]
+            |e| { format!("connection error: {}", e) },
+        ConnectionNotFound
+            { connection_id: ConnectionId }
+            |e| { format!("connection not found: {0}", e.connection_id) },
+        EmptyConnectionId
+            |_| { "empty connection id" },
         
         // tx
         Tx 
@@ -182,6 +194,17 @@ define_error! {
         Memo
             [ TraceError<MemoError> ]
             |e| { format!("memo error: {}", e) },
+
+        // commitment
+        CommitmentError
+            [ TraceError<CommitmentError> ]
+            |e| { format!("commitment error: {}", e) },
+
+        InvalidMetadata
+            [ TraceError<InvalidMetadataValue> ]
+            |_| { "invalid metadata" },
+        EmptyResponseProof
+            |_| { "empty response proof" },
 
     }
 }

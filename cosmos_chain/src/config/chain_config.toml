@@ -29,6 +29,7 @@ gas_multiplier = 1.1
 fee_granter = ""
 
 memo_prefix = ""
+store_prefix = ""
 
 # tx
 max_msg_num = 4
