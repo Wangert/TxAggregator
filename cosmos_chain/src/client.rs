@@ -36,7 +36,7 @@ use crate::{
     validate::validate_client_state,
 };
 
-pub fn build_update_client_request(
+pub async fn build_update_client_request(
     src_trpc_client: &mut HttpClient,
     dst_trpc_client: &mut HttpClient,
     dst_grpc_client: &mut IbcClientQueryClient<Channel>,
@@ -66,7 +66,7 @@ pub fn build_update_client_request(
     ))?;
 
     let client_state_validate =
-        validate_client_state(src_trpc_client, client_id.clone(), &client_state);
+        validate_client_state(src_trpc_client, client_id.clone(), &client_state).await;
 
     if let Some(e) = client_state_validate {
         return Err(e);
@@ -89,7 +89,7 @@ pub fn build_update_client_request(
 
 // pub fn build_header()
 
-pub fn build_create_client_request(
+pub async fn build_create_client_request(
     trpc_client: &mut HttpClient,
     grpc_staking_client: &mut StakingQueryClient<Channel>,
     create_client_options: &CreateClientOptions,
@@ -113,7 +113,7 @@ pub fn build_create_client_request(
         src_chain_config,
         &client_state,
         client_state.latest_height,
-    )?;
+    ).await?;
 
     // signer
     let account = Secp256k1Account::new(
@@ -196,13 +196,13 @@ fn build_client_state(
     Ok(client_state)
 }
 
-fn build_consensus_state(
+async fn build_consensus_state(
     trpc: &mut HttpClient,
     chain_config: &CosmosChainConfig,
     client_state: &ClientState,
     height: Height,
 ) -> Result<ConsensusState, Error> {
-    let status = trpc::consensus::tendermint_status(trpc)?;
+    let status = trpc::consensus::tendermint_status(trpc).await?;
 
     println!("status.node_info.id: {:?}", status.node_info.id);
     let verified_block = verify_block_header_and_fetch_light_block(
@@ -214,7 +214,7 @@ fn build_consensus_state(
         status.sync_info.latest_block_time,
     )?;
 
-    Ok(ConsensusState::from(verified_block.signed_header.header))
+    Ok(ConsensusState::from(verified_block.target.signed_header.header))
 }
 
 #[derive(Debug, Default)]

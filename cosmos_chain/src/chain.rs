@@ -11,31 +11,56 @@ use ibc_proto::{
         tx::v1beta1::service_client::ServiceClient as TxServiceClient,
     },
     google::protobuf::Any,
-    ibc::core::connection::v1::query_client::QueryClient as ConnectionQueryClient,
+    ibc::core::{
+        client::v1::query_client::QueryClient as IbcClientQueryClient,
+        connection::v1::query_client::QueryClient as ConnectionQueryClient,
+    },
+    Protobuf,
 };
 use log::{error, info, trace};
 use prost::Message;
 use std::sync::Arc;
-use tendermint::abci::response::Info;
+use tendermint::{
+    abci::response::Info,
+    block::{Header as TendermintHeader, Height as TendermintHeight},
+};
+use tendermint_light_client::types::LightBlock;
 use tendermint_rpc::{Client, HttpClient};
 use tokio::runtime::Runtime;
 use tonic::transport::Channel;
 use tracing::{info as tracing_info, info_span};
 use types::{
     ibc_core::{
+        ics02_client::{height::Height, update_client::MsgUpdateClient},
         ics03_connection::{connection::ConnectionEnd, version::Version},
         ics23_commitment::{commitment::CommitmentPrefix, merkle_tree::MerkleProof},
-        ics24_host::identifier::{ChainId, ConnectionId},
+        ics24_host::{
+            identifier::{ChainId, ClientId, ConnectionId},
+            path::{ClientConsensusStatePath, IBC_QUERY_PATH},
+        },
     },
     ibc_events::{IbcEvent, IbcEventWithHeight},
+    light_clients::ics07_tendermint::{
+        client_state::ClientState, consensus_state::ConsensusState, header::Header,
+    },
 };
 
 use crate::{
-    account::{self, Secp256k1Account}, common::QueryHeight, config::{default::max_grpc_decoding_size, load_cosmos_chain_config, CosmosChainConfig}, error::Error, query::{
-        grpc::{self, account::query_detail_account},
+    account::{self, Secp256k1Account},
+    common::QueryHeight,
+    config::{default::max_grpc_decoding_size, load_cosmos_chain_config, CosmosChainConfig},
+    error::Error,
+    light_client::{
+        build_light_client_io, fetch_light_block, verify_block_header_and_fetch_light_block,
+        Verified,
+    },
+    query::{
+        grpc::{self, account::query_detail_account, consensus::query_all_consensus_state_heights},
         trpc,
-        types::{Block, BlockResults},
-    }, tx::{batch::batch_messages, send::send_tx, types::Memo}
+        types::{Block, BlockResults, TendermintStatus},
+    },
+    tx::{batch::batch_messages, send::send_tx, types::Memo},
+    validate::validate_client_state,
 };
 
 #[derive(Debug, Clone)]
@@ -156,6 +181,11 @@ impl CosmosChain {
             .block_on(grpc::connect::grpc_auth_client(&self.config.grpc_addr))
     }
 
+    pub fn grpc_ibcclient_client(&self) -> IbcClientQueryClient<Channel> {
+        self.rt
+            .block_on(grpc::connect::grpc_ibcclient_client(&self.config.grpc_addr))
+    }
+
     pub fn grpc_staking_client(&self) -> StakingQueryClient<Channel> {
         self.rt
             .block_on(grpc::connect::grpc_staking_client(&self.config.grpc_addr))
@@ -255,6 +285,12 @@ impl CosmosChain {
         grpc::staking::query_staking_params(&mut grpc_client)
     }
 
+    pub fn query_block_header(&self, height: TendermintHeight) -> Result<TendermintHeader, Error> {
+        let mut trpc = self.tendermint_rpc_client();
+        self.rt
+            .block_on(trpc::block::detail_block_header(&mut trpc, height))
+    }
+
     pub fn query_latest_block(&mut self) -> Result<Block, Error> {
         let mut trpc = self.tendermint_rpc_client();
         trace!("query latest block");
@@ -268,6 +304,189 @@ impl CosmosChain {
 
         self.rt
             .block_on(trpc::block::latest_block_results(&mut trpc))
+    }
+
+    pub fn query_latest_height(&self) -> Result<Height, Error> {
+        let latest_block_results = self.query_latest_block_results()?;
+        let block_header = self.query_block_header(latest_block_results.height)?;
+        let revision_number = ChainId::chain_version(block_header.chain_id.as_str());
+        let revision_height = u64::from(self.query_latest_block_results()?.height);
+
+        Height::new(revision_number, revision_height).map_err(Error::type_error)
+    }
+
+    pub fn query_client_consensus_state(
+        &self,
+        client_id: &ClientId,
+        target_height: Height,
+        query_height: QueryHeight,
+        prove: bool,
+    ) -> Result<(ConsensusState, Option<MerkleProof>), Error> {
+        let mut trpc_client = self.tendermint_rpc_client().clone();
+        let data = ClientConsensusStatePath {
+            client_id: client_id.clone(),
+            epoch: target_height.revision_number(),
+            height: target_height.revision_height(),
+        };
+
+        let abci_query = self.rt.block_on(trpc::abci::abci_query(
+            &mut trpc_client,
+            IBC_QUERY_PATH.to_string(),
+            data.to_string(),
+            query_height.into(),
+            prove,
+        ))?;
+
+        let consensus_state: ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
+            .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
+
+        Ok((consensus_state, abci_query.merkle_proof))
+    }
+
+    pub fn query_client_state(&self, client_id: &ClientId) -> Result<ClientState, Error> {
+        let mut trpc_client = self.tendermint_rpc_client();
+        self.rt.block_on(trpc::abci::abci_query_client_state(
+            &mut trpc_client,
+            client_id.clone(),
+            QueryHeight::Latest,
+            true,
+        ))
+    }
+
+    pub fn query_tendermint_status(&self) -> Result<TendermintStatus, Error> {
+        let mut trpc_client = self.tendermint_rpc_client();
+        self.rt
+            .block_on(trpc::consensus::tendermint_status(&mut trpc_client))
+    }
+
+    pub fn query_consensus_state_heights(
+        &self,
+        client_id: &ClientId,
+    ) -> Result<Vec<Height>, Error> {
+        let mut grpc_client = self.grpc_ibcclient_client();
+        query_all_consensus_state_heights(&mut grpc_client, client_id.clone())
+    }
+
+    pub fn query_light_blocks(
+        &self,
+        client_state: &ClientState,
+        target_height: Height,
+    ) -> Result<Verified<LightBlock>, Error> {
+        let mut trpc_client = self.tendermint_rpc_client();
+        let chain_config = self.config.clone();
+        let chain_status = self.query_tendermint_status()?;
+
+        verify_block_header_and_fetch_light_block(
+            &mut trpc_client,
+            &chain_config,
+            &client_state,
+            target_height,
+            &chain_status.node_info.id,
+            chain_status.sync_info.latest_block_time,
+        )
+    }
+
+    pub fn query_trusted_height(
+        &self,
+        target_height: Height,
+        client_id: &ClientId,
+        client_state: &ClientState,
+    ) -> Result<Height, Error> {
+        let client_latest_height = client_state.latest_height;
+
+        if client_latest_height < target_height {
+            // If the latest height of the client is already lower than the
+            // target height, we can simply use it.
+            Ok(client_latest_height)
+        } else {
+            // Potential optimization: cache the list of consensus heights
+            // so that subsequent fetches can be fast.
+            let cs_heights = self.query_consensus_state_heights(client_id)?;
+
+            // Iterate through the available consesnsus heights and find one
+            // that is lower than the target height.
+            cs_heights
+                .into_iter()
+                .find(|h| h < &target_height)
+                .ok_or_else(Error::missing_smaller_trusted_height)
+        }
+    }
+
+    pub fn adjust_headers(
+        &self,
+        trusted_height: Height,
+        target: LightBlock,
+        supporting: Vec<LightBlock>,
+    ) -> Result<(Header, Vec<Header>), Error> {
+        let mut trpc_client = self.tendermint_rpc_client();
+        let chain_config = self.config.clone();
+        let chain_status = self.query_tendermint_status()?;
+
+        let prodio =
+            build_light_client_io(&mut trpc_client, &chain_config, &chain_status.node_info.id);
+
+        // Get the light block at trusted_height + 1 from chain.
+        let trusted_validator_set =
+            fetch_light_block(prodio, trusted_height.increment())?.validators;
+
+        let mut supporting_headers = Vec::with_capacity(supporting.len());
+
+        let mut current_trusted_height = trusted_height;
+        let mut current_trusted_validators = trusted_validator_set.clone();
+
+        for support in supporting {
+            let header = Header {
+                signed_header: support.signed_header.clone(),
+                validator_set: support.validators,
+                trusted_height: current_trusted_height,
+                trusted_validator_set: current_trusted_validators,
+            };
+
+            // This header is now considered to be the currently trusted header
+            current_trusted_height = header.height();
+
+            // Therefore we can now trust the next validator set, see NOTE above.
+            current_trusted_validators =
+                fetch_light_block(prodio, header.height().increment())?.validators;
+
+            supporting_headers.push(header);
+        }
+
+        // a) Set the trusted height of the target header to the height of the previous
+        // supporting header if any, or to the initial trusting height otherwise.
+        //
+        // b) Set the trusted validators of the target header to the validators of the successor to
+        // the last supporting header if any, or to the initial trusted validators otherwise.
+        let (latest_trusted_height, latest_trusted_validator_set) = match supporting_headers.last()
+        {
+            Some(prev_header) => {
+                let prev_succ = fetch_light_block(prodio, prev_header.height().increment())?;
+                (prev_header.height(), prev_succ.validators)
+            }
+            None => (trusted_height, trusted_validator_set),
+        };
+
+        let target_header = Header {
+            signed_header: target.signed_header,
+            validator_set: target.validators,
+            trusted_height: latest_trusted_height,
+            trusted_validator_set: latest_trusted_validator_set,
+        };
+
+        Ok((target_header, supporting_headers))
+    }
+
+    pub fn validate_client_state(
+        &self,
+        client_id: &ClientId,
+        client_state: &ClientState,
+    ) -> Option<Error> {
+        let mut trpc_client = self.tendermint_rpc_client();
+        self.rt.block_on(validate_client_state(
+            &mut trpc_client,
+            client_id.clone(),
+            client_state,
+        ))
     }
 }
 

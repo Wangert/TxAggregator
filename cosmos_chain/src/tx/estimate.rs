@@ -278,13 +278,13 @@ pub mod estimate_tests {
         let dst_chain_config = cosmos_chain.config.clone();
 
         println!("access build create client request");
-        let msg_create_client = build_create_client_request(
+        let msg_create_client = rt.block_on(build_create_client_request(
             &mut trpc_client,
             &mut grpc_staking_client,
             &create_client_options,
             &src_chain_config,
             &dst_chain_config,
-        )
+        ))
         .expect("msg_create_client error!");
 
         let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);

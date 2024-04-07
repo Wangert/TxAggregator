@@ -1,5 +1,8 @@
 use ibc_proto::{google::protobuf::Any, Protobuf, ibc::core::client::v1::MsgUpdateClient as RawMsgUpdateClient};
-use crate::{error::TypesError, ibc_core::ics24_host::{error::IdentifierError, identifier::ClientId}, signer::Signer};
+use crate::{error::TypesError, ibc_core::ics24_host::{error::IdentifierError, identifier::ClientId}, message::Msg, signer::Signer};
+
+pub const TYPE_URL: &str = "/ibc.core.client.v1.MsgUpdateClient";
+pub const ROUTER_KEY: &str = "ibc";
 
 #[derive(Clone, Debug)]
 pub struct MsgUpdateClient {
@@ -15,6 +18,19 @@ impl MsgUpdateClient {
             header,
             signer,
         }
+    }
+}
+
+impl Msg for MsgUpdateClient {
+    type ValidationError = TypesError;
+    type Raw = RawMsgUpdateClient;
+
+    fn route(&self) -> String {
+        ROUTER_KEY.to_string()
+    }
+
+    fn type_url(&self) -> String {
+        TYPE_URL.to_string()
     }
 }
 

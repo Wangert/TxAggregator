@@ -22,6 +22,8 @@ use utils::file::error::FileError;
 
 define_error! {
     Error {
+        MissingSmallerTrustedHeight
+            |e| {"missing trusted state smaller than target height"},
         TxResponse
             { event: String }
             |e| {
@@ -205,6 +207,11 @@ define_error! {
             |_| { "invalid metadata" },
         EmptyResponseProof
             |_| { "empty response proof" },
+
+        // type error
+        TypeError
+            [ TraceError<TypesError> ]
+            |e| { format!("type error: {}", e) }
 
     }
 }

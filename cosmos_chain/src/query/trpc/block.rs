@@ -34,7 +34,7 @@ pub async fn block_results(trpc: &mut HttpClient, height: u32) -> Result<BlockRe
     Ok(BlockResults::from(block_results_resp))
 }
 
-pub async fn detail_block_header(trpc: &mut HttpClient, height: tendermint::block::Height) -> Result<Header, Error> {
+pub async fn detail_block_header(trpc: &mut HttpClient, height: Height) -> Result<Header, Error> {
     let detail_block_header = trpc
         .header(height)
         .await

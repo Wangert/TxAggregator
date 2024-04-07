@@ -1,9 +1,11 @@
-use std::time::Duration;
+use std::{thread, time::Duration};
 
 use ibc_proto::google::protobuf::Any;
+use log::trace;
 use tracing::{debug, error, info, warn};
 use types::{
     ibc_core::{
+        ics02_client::{header::AnyHeader, height::Height, update_client::MsgUpdateClient},
         ics03_connection::{
             connection::{Counterparty, State},
             error::ConnectionError,
@@ -16,7 +18,7 @@ use types::{
     message::Msg,
 };
 
-use crate::{chain::CosmosChain, error::Error};
+use crate::{chain::CosmosChain, common::QueryHeight, error::Error, light_client::Verified};
 
 #[derive(Debug, Clone)]
 pub struct ConnectionSide {
@@ -79,6 +81,89 @@ impl Connection {
         self.side_b.client_id()
     }
 
+    pub async fn build_update_client_on_source_chain(
+        &self,
+        target_height: Height,
+    ) -> Result<Vec<Any>, Error> {
+        trace!("build_update_client_on_source_chain");
+
+        let client_id = self.source_chain_client_id();
+        // query consensus state on source chain
+        let client_consensus_state_on_source = self.source_chain().query_client_consensus_state(
+            &client_id,
+            target_height,
+            QueryHeight::Latest,
+            false,
+        );
+
+        if let Ok(_) = client_consensus_state_on_source {
+            debug!("consensus state already exists at height {target_height}, skipping update");
+            return Ok(vec![]);
+        }
+
+        let target_chain_latest_height = || self.target_chain().query_latest_height();
+
+        while target_chain_latest_height()? < target_height {
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        // validate client state
+        let client_state = self.source_chain().query_client_state(&client_id)?;
+        let client_state_validate = self
+            .source_chain()
+            .validate_client_state(&client_id, &client_state);
+
+        if let Some(e) = client_state_validate {
+            return Err(e);
+        }
+
+        // Obtain the required block based on the target block height and client_state
+        let verified_blocks = self
+            .target_chain()
+            .query_light_blocks(&client_state, target_height)?;
+
+        let trusted_height =
+            self.source_chain()
+                .query_trusted_height(target_height, &client_id, &client_state)?;
+
+        let (target_header, support_headers) = self
+            .target_chain()
+            .adjust_headers(
+                trusted_height,
+                verified_blocks.target,
+                verified_blocks.supporting,
+            )
+            .map(|(target_header, support_headers)| {
+                let header = AnyHeader::from(target_header);
+                let support: Vec<AnyHeader> = support_headers
+                    .into_iter()
+                    .map(|h| AnyHeader::from(h))
+                    .collect();
+                (header, support)
+            })?;
+
+        let signer = self.source_chain().account().get_signer()?;
+
+        let mut msgs = vec![];
+        for header in support_headers {
+            msgs.push(MsgUpdateClient {
+                header: header.into(),
+                client_id: client_id.clone(),
+                signer: signer.clone(),
+            });
+        }
+
+        msgs.push(MsgUpdateClient {
+            header: target_header.into(),
+            signer,
+            client_id: client_id.clone(),
+        });
+
+        let encoded_messages = msgs.into_iter().map(Msg::to_any).collect::<Vec<Any>>();
+
+        return Ok(encoded_messages);
+    }
+
     // Sends a connection open handshake message.
     // The message sent depends on the chain status of the connection ends.
     fn do_conn_open_handshake(&mut self) -> Result<(), Error> {
@@ -105,12 +190,13 @@ impl Connection {
 
             // send the Try message to chain a (source)
             (State::Uninitialized, State::Init) | (State::Init, State::Init) => {
-                let event = self.flipped().build_conn_try_and_send().map_err(|e| {
-                    error!("failed ConnOpenTry {:?}: {}", self.side_a, e);
-                    e
-                })?;
+                let event = self
+                    .flipped()
+                    .build_connection_open_try_and_send()
+                    .map_err(Error::connection_error)?;
 
-                let connection_id = extract_connection_id(&event)?;
+                let connection_id =
+                    extract_connection_id(&event).map_err(Error::connection_error)?;
                 self.side_a.connection_id = Some(connection_id.clone());
             }
 
@@ -121,7 +207,8 @@ impl Connection {
                     e
                 })?;
 
-                let connection_id = extract_connection_id(&event)?;
+                let connection_id =
+                    extract_connection_id(&event).map_err(Error::connection_error)?;
                 self.side_b.connection_id = Some(connection_id.clone());
             }
 
@@ -182,7 +269,7 @@ impl Connection {
 
         let (a_connection, _) = self.source_chain().query_connection(
             old_con_a_id.ok_or_else(Error::empty_connection_id)?,
-            crate::common::QueryHeight::Latest,
+            QueryHeight::Latest,
             false,
         )?;
         let a_counterparty_id = a_connection.counterparty().connection_id();
@@ -283,153 +370,133 @@ impl Connection {
         }
     }
 
-    // /// Attempts to build a MsgConnOpenTry.
-    // ///
-    // /// Return the messages and the app height the destination chain must reach
-    // /// before we send the messages.
-    // pub fn build_connection_open_try(&self) -> Result<(Vec<Any>, Height), ConnectionError> {
-    //     let src_connection_id = self
-    //         .src_connection_id()
-    //         .ok_or_else(ConnectionError::missing_local_connection_id)?;
+    /// Attempts to build a MsgConnOpenTry.
+    ///
+    /// Return the messages and the app height the destination chain must reach
+    /// before we send the messages.
+    pub async fn build_connection_open_try(&self) -> Result<(Vec<Any>, Height), Error> {
+        let src_connection_id = self
+            .side_a
+            .connection_id()
+            .ok_or_else(Error::empty_connection_id)?;
 
-    //     let (src_connection, _) = self
-    //         .src_chain()
-    //         .query_connection(
-    //             QueryConnectionRequest {
-    //                 connection_id: src_connection_id.clone(),
-    //                 height: QueryHeight::Latest,
-    //             },
-    //             IncludeProof::No,
-    //         )
-    //         .map_err(|e| ConnectionError::chain_query(self.src_chain().id(), e))?;
+        let (src_connection, _) = self.source_chain().query_connection(
+            src_connection_id.clone(),
+            QueryHeight::Latest,
+            false,
+        )?;
 
-    //     // TODO - check that the src connection is consistent with the try options
+        // Cross-check the delay_period
+        let delay = if src_connection.delay_period() != self.delay_period {
+            warn!("`delay_period` for ConnectionEnd @{} is {}s; delay period on local Connection object is set to {}s",
+                self.source_chain().id(), src_connection.delay_period().as_secs_f64(), self.delay_period.as_secs_f64());
 
-    //     // Cross-check the delay_period
-    //     let delay = if src_connection.delay_period() != self.delay_period {
-    //         warn!("`delay_period` for ConnectionEnd @{} is {}s; delay period on local Connection object is set to {}s",
-    //             self.src_chain().id(), src_connection.delay_period().as_secs_f64(), self.delay_period.as_secs_f64());
+            warn!(
+                "Overriding delay period for local connection object to {}s",
+                src_connection.delay_period().as_secs_f64()
+            );
 
-    //         warn!(
-    //             "Overriding delay period for local connection object to {}s",
-    //             src_connection.delay_period().as_secs_f64()
-    //         );
+            src_connection.delay_period()
+        } else {
+            self.delay_period
+        };
 
-    //         src_connection.delay_period()
-    //     } else {
-    //         self.delay_period
-    //     };
+        // Build add send the message(s) for updating client on source
+        let src_client_target_height = self.target_chain().query_latest_height()?;
+        let update_client_msgs = self.build_update_client_on_source_chain(src_client_target_height).await?;
 
-    //     // Build add send the message(s) for updating client on source
-    //     // TODO - add check if update client is required
-    //     let src_client_target_height = self
-    //         .dst_chain()
-    //         .query_latest_height()
-    //         .map_err(|e| ConnectionError::chain_query(self.dst_chain().id(), e))?;
-    //     let client_msgs = self.build_update_client_on_src(src_client_target_height)?;
+        // let tm =
+        //     TrackedMsgs::new_static(client_msgs, "update client on source for ConnectionOpenTry");
+        self.source_chain().send_messages_and_wait_commit(update_client_msgs)?;
 
-    //     let tm =
-    //         TrackedMsgs::new_static(client_msgs, "update client on source for ConnectionOpenTry");
-    //     self.src_chain()
-    //         .send_messages_and_wait_commit(tm)
-    //         .map_err(|e| ConnectionError::submit(self.src_chain().id(), e))?;
+        let query_height = self.source_chain().query_latest_height()?;
+        let (client_state, proofs) = self
+            .source_chain()
+            .build_connection_proofs_and_client_state(
+                ConnectionMsgType::OpenTry,
+                src_connection_id,
+                self.side_a.client_id(),
+                query_height,
+            )
+            .map_err(ConnectionError::connection_proof)?;
 
-    //     let query_height = self
-    //         .src_chain()
-    //         .query_latest_height()
-    //         .map_err(|e| ConnectionError::chain_query(self.src_chain().id(), e))?;
-    //     let (client_state, proofs) = self
-    //         .src_chain()
-    //         .build_connection_proofs_and_client_state(
-    //             ConnectionMsgType::OpenTry,
-    //             src_connection_id,
-    //             self.src_client_id(),
-    //             query_height,
-    //         )
-    //         .map_err(ConnectionError::connection_proof)?;
+        // Build message(s) for updating client on destination
+        let mut msgs = self.build_update_client_on_target_chain(proofs.height())?;
 
-    //     // Build message(s) for updating client on destination
-    //     let mut msgs = self.build_update_client_on_dst(proofs.height())?;
+        let counterparty_versions = if src_connection.versions().is_empty() {
+            self.source_chain().query_compatible_versions()
+        } else {
+            src_connection.versions().to_vec()
+        };
 
-    //     let counterparty_versions = if src_connection.versions().is_empty() {
-    //         self.src_chain()
-    //             .query_compatible_versions()
-    //             .map_err(|e| ConnectionError::chain_query(self.src_chain().id(), e))?
-    //     } else {
-    //         src_connection.versions().to_vec()
-    //     };
+        // Get signer
+        let signer = self.target_chain().account().get_signer()?;
 
-    //     // Get signer
-    //     let signer = self
-    //         .dst_chain()
-    //         .get_signer()
-    //         .map_err(|e| ConnectionError::signer(self.dst_chain().id(), e))?;
+        let prefix = self
+            .source_chain()
+            .query_commitment_prefix()
+            .map_err(|e| ConnectionError::chain_query(self.src_chain().id(), e))?;
 
-    //     let prefix = self
-    //         .src_chain()
-    //         .query_commitment_prefix()
-    //         .map_err(|e| ConnectionError::chain_query(self.src_chain().id(), e))?;
+        let counterparty = Counterparty::new(
+            self.side_a.client_id().clone(),
+            self.side_a.connection_id(),
+            prefix,
+        );
 
-    //     let counterparty = Counterparty::new(
-    //         self.src_client_id().clone(),
-    //         self.src_connection_id().cloned(),
-    //         prefix,
-    //     );
+        let previous_connection_id = if src_connection.counterparty().connection_id.is_none() {
+            self.side_b.connection_id()
+        } else {
+            src_connection.counterparty().connection_id.clone()
+        };
 
-    //     let previous_connection_id = if src_connection.counterparty().connection_id.is_none() {
-    //         self.b_side.connection_id.clone()
-    //     } else {
-    //         src_connection.counterparty().connection_id.clone()
-    //     };
+        let new_msg = MsgConnectionOpenTry {
+            client_id: self.side_b.client_id(),
+            client_state: client_state.map(Into::into),
+            previous_connection_id,
+            counterparty,
+            counterparty_versions,
+            proofs,
+            delay_period: delay,
+            signer,
+        };
 
-    //     let new_msg = MsgConnectionOpenTry {
-    //         client_id: self.dst_client_id().clone(),
-    //         client_state: client_state.map(Into::into),
-    //         previous_connection_id,
-    //         counterparty,
-    //         counterparty_versions,
-    //         proofs,
-    //         delay_period: delay,
-    //         signer,
-    //     };
+        msgs.push(new_msg.to_any());
 
-    //     msgs.push(new_msg.to_any());
+        Ok((msgs, src_client_target_height))
+    }
 
-    //     Ok((msgs, src_client_target_height))
-    // }
+    pub async fn build_connection_open_try_and_send(&self) -> Result<IbcEvent, Error> {
+        let (con_open_try_msgs, src_client_target_height) = self.build_connection_open_try().await?;
 
-    // pub fn build_connection_open_try_and_send(&self) -> Result<IbcEvent, ConnectionError> {
-    //     let (dst_msgs, src_client_target_height) = self.build_conn_try()?;
+        // Wait for the height of the application on the destination chain to be higher than
+        // the height of the consensus state included in the proofs.
+        self.wait_for_dest_app_height_higher_than_consensus_proof_height(src_client_target_height)?;
 
-    //     // Wait for the height of the application on the destination chain to be higher than
-    //     // the height of the consensus state included in the proofs.
-    //     self.wait_for_dest_app_height_higher_than_consensus_proof_height(src_client_target_height)?;
+        // let tm = TrackedMsgs::new_static(dst_msgs, "ConnectionOpenTry");
 
-    //     let tm = TrackedMsgs::new_static(dst_msgs, "ConnectionOpenTry");
+        let events = self
+            .target_chain()
+            .send_messages_and_wait_commit(con_open_try_msgs)
+            .map_err(|e| Error::submit(self.target_chain().id(), e))?;
 
-    //     let events = self
-    //         .dst_chain()
-    //         .send_messages_and_wait_commit(tm)
-    //         .map_err(|e| ConnectionError::submit(self.dst_chain().id(), e))?;
+        // Find the relevant event for connection try transaction
+        let result = events
+            .into_iter()
+            .find(|event_with_height| {
+                matches!(event_with_height.event, IbcEvent::OpenTryConnection(_))
+                    || matches!(event_with_height.event, IbcEvent::CosmosChainError(_))
+            })
+            .ok_or_else(ConnectionError::missing_connection_try_event)?;
 
-    //     // Find the relevant event for connection try transaction
-    //     let result = events
-    //         .into_iter()
-    //         .find(|event_with_height| {
-    //             matches!(event_with_height.event, IbcEvent::OpenTryConnection(_))
-    //                 || matches!(event_with_height.event, IbcEvent::ChainError(_))
-    //         })
-    //         .ok_or_else(ConnectionError::missing_connection_try_event)?;
-
-    //     match &result.event {
-    //         IbcEvent::OpenTryConnection(_) => {
-    //             info!("🥂 {} => {}", self.dst_chain().id(), result);
-    //             Ok(result.event)
-    //         }
-    //         IbcEvent::ChainError(e) => Err(ConnectionError::tx_response(e.clone())),
-    //         _ => Err(ConnectionError::invalid_event(result.event)),
-    //     }
-    // }
+        match &result.event {
+            IbcEvent::OpenTryConnection(_) => {
+                info!("🥂 {} => {}", self.target_chain().id(), result);
+                Ok(result.event)
+            }
+            IbcEvent::CosmosChainError(e) => Err(Error::tx_response(e.clone())),
+            _ => Err(Error::invalid_event(result.event)),
+        }
+    }
 
     pub fn flipped(&self) -> Self {
         Self {

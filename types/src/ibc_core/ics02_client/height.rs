@@ -41,6 +41,10 @@ impl Height {
     pub fn revision_height(&self) -> u64 {
         self.revision_height
     }
+
+    pub fn increment(self) -> Height {
+        self + 1
+    }
 }
 
 impl core::fmt::Debug for Height {
