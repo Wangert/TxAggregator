@@ -32,8 +32,11 @@ use tracing::{info as tracing_info, info_span};
 use types::{
     ibc_core::{
         ics02_client::{height::Height, update_client::MsgUpdateClient},
-        ics03_connection::{connection::ConnectionEnd, version::Version},
-        ics23_commitment::{commitment::CommitmentPrefix, merkle_tree::MerkleProof},
+        ics03_connection::{
+            connection::{ConnectionEnd, State},
+            version::Version,
+        },
+        ics23_commitment::{commitment::{CommitmentPrefix, CommitmentProofBytes}, merkle_tree::MerkleProof},
         ics24_host::{
             identifier::{ChainId, ClientId, ConnectionId},
             path::{ClientConsensusStatePath, IBC_QUERY_PATH},
@@ -42,13 +45,14 @@ use types::{
     ibc_events::{IbcEvent, IbcEventWithHeight},
     light_clients::ics07_tendermint::{
         client_state::ClientState, consensus_state::ConsensusState, header::Header,
-    },
+    }, proofs::{ConsensusProof, Proofs},
 };
 
 use crate::{
     account::{self, Secp256k1Account},
     common::QueryHeight,
     config::{default::max_grpc_decoding_size, load_cosmos_chain_config, CosmosChainConfig},
+    connection::ConnectionMsgType,
     error::Error,
     light_client::{
         build_light_client_io, fetch_light_block, verify_block_header_and_fetch_light_block,
@@ -209,8 +213,8 @@ impl CosmosChain {
     }
 
     pub fn query_connection(
-        &mut self,
-        connection_id: ConnectionId,
+        &self,
+        connection_id: &ConnectionId,
         height_query: QueryHeight,
         prove: bool,
     ) -> Result<(ConnectionEnd, Option<MerkleProof>), Error> {
@@ -298,7 +302,7 @@ impl CosmosChain {
         trpc::block::latest_block(&mut trpc)
     }
 
-    pub fn query_latest_block_results(&mut self) -> Result<BlockResults, Error> {
+    pub fn query_latest_block_results(&self) -> Result<BlockResults, Error> {
         let mut trpc = self.tendermint_rpc_client();
         trace!("query latest block results");
 
@@ -343,13 +347,18 @@ impl CosmosChain {
         Ok((consensus_state, abci_query.merkle_proof))
     }
 
-    pub fn query_client_state(&self, client_id: &ClientId) -> Result<ClientState, Error> {
+    pub fn query_client_state(
+        &self,
+        client_id: &ClientId,
+        query_height: QueryHeight,
+        prove: bool,
+    ) -> Result<(ClientState, Option<MerkleProof>), Error> {
         let mut trpc_client = self.tendermint_rpc_client();
         self.rt.block_on(trpc::abci::abci_query_client_state(
             &mut trpc_client,
             client_id.clone(),
-            QueryHeight::Latest,
-            true,
+            query_height,
+            prove,
         ))
     }
 
@@ -412,6 +421,106 @@ impl CosmosChain {
         }
     }
 
+    pub fn build_connection_proofs_and_client_state(
+        &self,
+        message_type: ConnectionMsgType,
+        connection_id: &ConnectionId,
+        client_id: &ClientId,
+        height: Height,
+    ) -> Result<(Option<ClientState>, Proofs), Error> {
+        let (connection_end, maybe_connection_proof) =
+            self.query_connection(connection_id, QueryHeight::Specific(height), true)?;
+
+        let Some(connection_proof) = maybe_connection_proof else {
+            return Err(Error::empty_response_proof());
+        };
+
+        // Check that the connection state is compatible with the message
+        match message_type {
+            ConnectionMsgType::OpenTry => {
+                if !connection_end.state_matches(&State::Init)
+                    && !connection_end.state_matches(&State::TryOpen)
+                {
+                    return Err(Error::bad_connection_state());
+                }
+            }
+            ConnectionMsgType::OpenAck => {
+                if !connection_end.state_matches(&State::TryOpen)
+                    && !connection_end.state_matches(&State::Open)
+                {
+                    return Err(Error::bad_connection_state());
+                }
+            }
+            ConnectionMsgType::OpenConfirm => {
+                if !connection_end.state_matches(&State::Open) {
+                    return Err(Error::bad_connection_state());
+                }
+            }
+        }
+
+        let mut client_state_option = None;
+        let mut client_proof_option = None;
+        let mut consensus_proof_option = None;
+
+        match message_type {
+            ConnectionMsgType::OpenTry | ConnectionMsgType::OpenAck => {
+                let (client_state, maybe_client_state_proof) =
+                    self.query_client_state(client_id, QueryHeight::Specific(height), true)?;
+
+                let Some(client_state_proof) = maybe_client_state_proof else {
+                    return Err(Error::empty_response_proof());
+                };
+
+                client_proof_option = Some(
+                    CommitmentProofBytes::try_from(client_state_proof)
+                        .map_err(Error::commitment_error)?,
+                );
+
+                let consensus_state_proof = {
+                    let (_, maybe_consensus_state_proof) = self.query_client_consensus_state(
+                        
+                            client_id,
+                            client_state.latest_height,
+                            QueryHeight::Specific(height),
+                    
+                        true,
+                    )?;
+
+                    let Some(consensus_state_proof) = maybe_consensus_state_proof else {
+                        return Err(Error::empty_response_proof());
+                    };
+
+                    consensus_state_proof
+                };
+
+                consensus_proof_option = Option::from(
+                    ConsensusProof::new(
+                        CommitmentProofBytes::try_from(consensus_state_proof)
+                            .map_err(Error::commitment_error)?,
+                        client_state.latest_height,
+                    )
+                    .map_err(Error::proof_error)?,
+                );
+
+                client_state_option = Some(client_state);
+            }
+            _ => {}
+        }
+
+        Ok((
+            client_state_option,
+            Proofs::new(
+                CommitmentProofBytes::try_from(connection_proof).map_err(Error::commitment_error)?,
+                client_proof_option,
+                consensus_proof_option,
+                None, // TODO: Retrieve host consensus proof when available
+                None,
+                height.increment(),
+            )
+            .map_err(Error::proof_error)?,
+        ))
+    }
+
     pub fn adjust_headers(
         &self,
         trusted_height: Height,
@@ -427,7 +536,7 @@ impl CosmosChain {
 
         // Get the light block at trusted_height + 1 from chain.
         let trusted_validator_set =
-            fetch_light_block(prodio, trusted_height.increment())?.validators;
+            fetch_light_block(&prodio, trusted_height.increment())?.validators;
 
         let mut supporting_headers = Vec::with_capacity(supporting.len());
 
@@ -447,7 +556,7 @@ impl CosmosChain {
 
             // Therefore we can now trust the next validator set, see NOTE above.
             current_trusted_validators =
-                fetch_light_block(prodio, header.height().increment())?.validators;
+                fetch_light_block(&prodio, header.height().increment())?.validators;
 
             supporting_headers.push(header);
         }
@@ -460,7 +569,7 @@ impl CosmosChain {
         let (latest_trusted_height, latest_trusted_validator_set) = match supporting_headers.last()
         {
             Some(prev_header) => {
-                let prev_succ = fetch_light_block(prodio, prev_header.height().increment())?;
+                let prev_succ = fetch_light_block(&prodio, prev_header.height().increment())?;
                 (prev_header.height(), prev_succ.validators)
             }
             None => (trusted_height, trusted_validator_set),

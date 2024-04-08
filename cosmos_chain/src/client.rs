@@ -58,7 +58,7 @@ pub async fn build_update_client_request(
 
     let rt = tokio::runtime::Runtime::new().expect("runtime new error!");
     // query and verify the latest client_state of src_chain on the dst_chain
-    let client_state = rt.block_on(trpc::abci::abci_query_client_state(
+    let (client_state, _) = rt.block_on(trpc::abci::abci_query_client_state(
         dst_trpc_client,
         client_id.clone(),
         QueryHeight::Latest,

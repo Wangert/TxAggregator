@@ -45,7 +45,7 @@ pub fn verify_block_header_and_fetch_light_block(
     if !chain_config.trusted_node {
         println!("trusted node is false");
         let trpc_io = build_light_client_io(trpc, chain_config, node_id);
-        let light_block = fetch_light_block(trpc_io, target_height)?;
+        let light_block = fetch_light_block(&trpc_io, target_height)?;
 
         println!("[verify_block_header_and_fetch_light_block] Light Block: {:?}", light_block);
         return Ok(Verified { target: light_block, supporting: vec![] });
@@ -109,7 +109,7 @@ pub fn create_temporary_light_client_state(
     node_id: &TendermintNodeId,
 ) -> Result<LightClientState, Error> {
     let trpc_io = build_light_client_io(trpc, chain_config, node_id);
-    let light_block = fetch_light_block(trpc_io, height)?;
+    let light_block = fetch_light_block(&trpc_io, height)?;
 
     let mut store = MemoryStore::new();
     store.insert(light_block, Status::Trusted);
@@ -128,7 +128,7 @@ pub fn build_light_client_io(
     ProdIo::new(node_id.clone(), trpc.clone(), Some(rpc_timeout))
 }
 
-pub fn fetch_light_block(trpc_io: ProdIo, height: Height) -> Result<LightBlock, Error> {
+pub fn fetch_light_block(trpc_io: &ProdIo, height: Height) -> Result<LightBlock, Error> {
     println!("access fetch light block");
     let light_block = trpc_io
         .fetch_light_block(AtHeight::At(height.into()))
@@ -154,7 +154,7 @@ fn adjust_headers(
     let prodio = build_light_client_io(trpc, chain_config, node_id);
 
     // Get the light block at trusted_height + 1 from chain.
-    let trusted_validator_set = fetch_light_block(prodio, trusted_height.increment())?.validators;
+    let trusted_validator_set = fetch_light_block(&prodio, trusted_height.increment())?.validators;
 
     let mut supporting_headers = Vec::with_capacity(supporting.len());
 
@@ -173,7 +173,7 @@ fn adjust_headers(
         current_trusted_height = header.height();
 
         // Therefore we can now trust the next validator set, see NOTE above.
-        current_trusted_validators = fetch_light_block(prodio, header.height().increment())?.validators;
+        current_trusted_validators = fetch_light_block(&prodio, header.height().increment())?.validators;
 
         supporting_headers.push(header);
     }
@@ -186,7 +186,7 @@ fn adjust_headers(
     let (latest_trusted_height, latest_trusted_validator_set) = match supporting_headers.last()
     {
         Some(prev_header) => {
-            let prev_succ = fetch_light_block(prodio, prev_header.height().increment())?;
+            let prev_succ = fetch_light_block(&prodio, prev_header.height().increment())?;
             (prev_header.height(), prev_succ.validators)
         }
         None => (trusted_height, trusted_validator_set),
@@ -227,7 +227,7 @@ pub mod light_client_tests {
         let status = cosmos_chain.query_tendermint_status().expect("query tendermint status error");
         let prod_io = build_light_client_io(&mut trpc_client, &cosmos_chain.config, &status.node_info.id);
 
-        let light_block = fetch_light_block(prod_io, latest_height);
+        let light_block = fetch_light_block(&prod_io, latest_height);
 
         match light_block {
             Ok(light_block) => println!("Light_block: {:?}", light_block),
@@ -252,7 +252,7 @@ pub mod light_client_tests {
         let status = cosmos_chain.query_tendermint_status().expect("query tendermint status error");
         let prod_io = build_light_client_io(&mut trpc_client, &cosmos_chain.config, &status.node_info.id);
 
-        let light_block = fetch_light_block(prod_io, latest_height);
+        let light_block = fetch_light_block(&prod_io, latest_height);
 
         match light_block {
             Ok(light_block) => println!("Light_block: {:?}", light_block),

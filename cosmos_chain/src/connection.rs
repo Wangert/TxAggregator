@@ -10,7 +10,7 @@ use types::{
             connection::{Counterparty, State},
             error::ConnectionError,
             events::extract_connection_id,
-            message::MsgConnectionOpenInit,
+            message::{MsgConnectionOpenInit, MsgConnectionOpenTry},
         },
         ics24_host::identifier::{ClientId, ConnectionId},
     },
@@ -19,6 +19,14 @@ use types::{
 };
 
 use crate::{chain::CosmosChain, common::QueryHeight, error::Error, light_client::Verified};
+
+/// Enumeration of proof carrying ICS3 message, helper for relayer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectionMsgType {
+    OpenTry,
+    OpenAck,
+    OpenConfirm,
+}
 
 #[derive(Debug, Clone)]
 pub struct ConnectionSide {
@@ -108,7 +116,9 @@ impl Connection {
         }
 
         // validate client state
-        let client_state = self.source_chain().query_client_state(&client_id)?;
+        let (client_state, _) =
+            self.source_chain()
+                .query_client_state(&client_id, QueryHeight::Latest, true)?;
         let client_state_validate = self
             .source_chain()
             .validate_client_state(&client_id, &client_state);
@@ -164,9 +174,94 @@ impl Connection {
         return Ok(encoded_messages);
     }
 
+    pub async fn build_update_client_on_target_chain(
+        &self,
+        target_height: Height,
+    ) -> Result<Vec<Any>, Error> {
+        trace!("build_update_client_on_target_chain");
+
+        let client_id = self.target_chain_client_id();
+        // query consensus state on source chain
+        let client_consensus_state_on_target = self.target_chain().query_client_consensus_state(
+            &client_id,
+            target_height,
+            QueryHeight::Latest,
+            false,
+        );
+
+        if let Ok(_) = client_consensus_state_on_target {
+            debug!("consensus state already exists at height {target_height}, skipping update");
+            return Ok(vec![]);
+        }
+
+        let source_chain_latest_height = || self.source_chain().query_latest_height();
+
+        while source_chain_latest_height()? < target_height {
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        // validate client state
+        let (client_state, _) =
+            self.target_chain()
+                .query_client_state(&client_id, QueryHeight::Latest, true)?;
+        let client_state_validate = self
+            .target_chain()
+            .validate_client_state(&client_id, &client_state);
+
+        if let Some(e) = client_state_validate {
+            return Err(e);
+        }
+
+        // Obtain the required block based on the target block height and client_state
+        let verified_blocks = self
+            .source_chain()
+            .query_light_blocks(&client_state, target_height)?;
+
+        let trusted_height =
+            self.source_chain()
+                .query_trusted_height(target_height, &client_id, &client_state)?;
+
+        let (target_header, support_headers) = self
+            .source_chain()
+            .adjust_headers(
+                trusted_height,
+                verified_blocks.target,
+                verified_blocks.supporting,
+            )
+            .map(|(target_header, support_headers)| {
+                let header = AnyHeader::from(target_header);
+                let support: Vec<AnyHeader> = support_headers
+                    .into_iter()
+                    .map(|h| AnyHeader::from(h))
+                    .collect();
+                (header, support)
+            })?;
+
+        let signer = self.target_chain().account().get_signer()?;
+
+        let mut msgs = vec![];
+        for header in support_headers {
+            msgs.push(MsgUpdateClient {
+                header: header.into(),
+                client_id: client_id.clone(),
+                signer: signer.clone(),
+            });
+        }
+
+        msgs.push(MsgUpdateClient {
+            header: target_header.into(),
+            signer,
+            client_id: client_id.clone(),
+        });
+
+        let encoded_messages = msgs.into_iter().map(Msg::to_any).collect::<Vec<Any>>();
+
+        return Ok(encoded_messages);
+    }
+
     // Sends a connection open handshake message.
     // The message sent depends on the chain status of the connection ends.
-    fn do_conn_open_handshake(&mut self) -> Result<(), Error> {
+    async fn do_conn_open_handshake(&mut self) -> Result<(), Error> {
         let (a_state, b_state) = self.update_connection_state()?;
         debug!(
             "do_conn_open_handshake with connection end states: {}, {}",
@@ -190,10 +285,7 @@ impl Connection {
 
             // send the Try message to chain a (source)
             (State::Uninitialized, State::Init) | (State::Init, State::Init) => {
-                let event = self
-                    .flipped()
-                    .build_connection_open_try_and_send()
-                    .map_err(Error::connection_error)?;
+                let event = self.flipped().build_connection_open_try_and_send().await?;
 
                 let connection_id =
                     extract_connection_id(&event).map_err(Error::connection_error)?;
@@ -202,48 +294,44 @@ impl Connection {
 
             // send the Try message to chain b (destination)
             (State::Init, State::Uninitialized) => {
-                let event = self.build_conn_try_and_send().map_err(|e| {
-                    error!("failed ConnOpenTry {:?}: {}", self.side_b, e);
-                    e
-                })?;
+                let event = self.build_connection_open_try_and_send().await?;
 
                 let connection_id =
                     extract_connection_id(&event).map_err(Error::connection_error)?;
                 self.side_b.connection_id = Some(connection_id.clone());
             }
 
-            // send the Ack message to chain a (source)
-            (State::Init, State::TryOpen) | (State::TryOpen, State::TryOpen) => {
-                self.flipped().build_conn_ack_and_send().map_err(|e| {
-                    error!("failed ConnOpenAck {:?}: {}", self.side_a, e);
-                    e
-                })?;
-            }
+            // // send the Ack message to chain a (source)
+            // (State::Init, State::TryOpen) | (State::TryOpen, State::TryOpen) => {
+            //     self.flipped().build_conn_ack_and_send().map_err(|e| {
+            //         error!("failed ConnOpenAck {:?}: {}", self.side_a, e);
+            //         e
+            //     })?;
+            // }
 
-            // send the Ack message to chain b (destination)
-            (State::TryOpen, State::Init) => {
-                self.build_conn_ack_and_send().map_err(|e| {
-                    error!("failed ConnOpenAck {:?}: {}", self.side_b, e);
-                    e
-                })?;
-            }
+            // // send the Ack message to chain b (destination)
+            // (State::TryOpen, State::Init) => {
+            //     self.build_conn_ack_and_send().map_err(|e| {
+            //         error!("failed ConnOpenAck {:?}: {}", self.side_b, e);
+            //         e
+            //     })?;
+            // }
 
-            // send the Confirm message to chain b (destination)
-            (State::Open, State::TryOpen) => {
-                self.build_conn_confirm_and_send().map_err(|e| {
-                    error!("failed ConnOpenConfirm {:?}: {}", self.side_a, e);
-                    e
-                })?;
-            }
+            // // send the Confirm message to chain b (destination)
+            // (State::Open, State::TryOpen) => {
+            //     self.build_conn_confirm_and_send().map_err(|e| {
+            //         error!("failed ConnOpenConfirm {:?}: {}", self.side_a, e);
+            //         e
+            //     })?;
+            // }
 
-            // send the Confirm message to chain a (source)
-            (State::TryOpen, State::Open) => {
-                self.flipped().build_conn_confirm_and_send().map_err(|e| {
-                    error!("failed ConnOpenConfirm {:?}: {}", self.side_a, e);
-                    e
-                })?;
-            }
-
+            // // send the Confirm message to chain a (source)
+            // (State::TryOpen, State::Open) => {
+            //     self.flipped().build_conn_confirm_and_send().map_err(|e| {
+            //         error!("failed ConnOpenConfirm {:?}: {}", self.side_a, e);
+            //         e
+            //     })?;
+            // }
             (State::Open, State::Open) => {
                 info!("connection handshake already finished for {:?}", self);
                 return Ok(());
@@ -260,7 +348,7 @@ impl Connection {
                 );
             }
         }
-        Err(Error::handshake_finalize())
+        Err(Error::handshake_continue())
     }
 
     pub fn update_connection_state(&mut self) -> Result<(State, State), Error> {
@@ -268,7 +356,7 @@ impl Connection {
         let old_con_b_id = self.side_b.connection_id();
 
         let (a_connection, _) = self.source_chain().query_connection(
-            old_con_a_id.ok_or_else(Error::empty_connection_id)?,
+            old_con_a_id.as_ref().ok_or_else(Error::empty_connection_id)?,
             QueryHeight::Latest,
             false,
         )?;
@@ -290,7 +378,7 @@ impl Connection {
 
         let updated_con_b_id = self.side_b.connection_id();
         let (b_connection, _) = self.target_chain().query_connection(
-            old_con_b_id.ok_or_else(Error::empty_connection_id)?,
+            old_con_b_id.as_ref().ok_or_else(Error::empty_connection_id)?,
             crate::common::QueryHeight::Latest,
             false,
         )?;
@@ -298,16 +386,6 @@ impl Connection {
 
         if b_counterparty_id.is_some() && b_counterparty_id != old_con_a_id.as_ref() {
             if updated_con_b_id == old_con_b_id {
-                // warn!(
-                //     "updating the expected {} of side_a({}) since it is different than the \
-                //     counterparty of {}: {}, on {}. This is typically caused by crossing handshake \
-                //     messages in the presence of multiple relayers.",
-                //     PrettyOption(&relayer_a_id),
-                //     self.a_chain().id(),
-                //     PrettyOption(&updated_relayer_b_id),
-                //     PrettyOption(&b_counterparty_id),
-                //     self.b_chain().id(),
-                // );
                 self.side_a.connection_id = b_counterparty_id.cloned();
             } else {
                 panic!(
@@ -381,7 +459,7 @@ impl Connection {
             .ok_or_else(Error::empty_connection_id)?;
 
         let (src_connection, _) = self.source_chain().query_connection(
-            src_connection_id.clone(),
+            &src_connection_id,
             QueryHeight::Latest,
             false,
         )?;
@@ -403,25 +481,29 @@ impl Connection {
 
         // Build add send the message(s) for updating client on source
         let src_client_target_height = self.target_chain().query_latest_height()?;
-        let update_client_msgs = self.build_update_client_on_source_chain(src_client_target_height).await?;
+        let update_client_msgs = self
+            .build_update_client_on_source_chain(src_client_target_height)
+            .await?;
 
         // let tm =
         //     TrackedMsgs::new_static(client_msgs, "update client on source for ConnectionOpenTry");
-        self.source_chain().send_messages_and_wait_commit(update_client_msgs)?;
+        self.source_chain()
+            .send_messages_and_wait_commit(update_client_msgs)?;
 
         let query_height = self.source_chain().query_latest_height()?;
         let (client_state, proofs) = self
             .source_chain()
             .build_connection_proofs_and_client_state(
                 ConnectionMsgType::OpenTry,
-                src_connection_id,
-                self.side_a.client_id(),
+                &src_connection_id,
+                &self.side_a.client_id(),
                 query_height,
-            )
-            .map_err(ConnectionError::connection_proof)?;
+            )?;
 
         // Build message(s) for updating client on destination
-        let mut msgs = self.build_update_client_on_target_chain(proofs.height())?;
+        let mut msgs = self
+            .build_update_client_on_target_chain(proofs.height())
+            .await?;
 
         let counterparty_versions = if src_connection.versions().is_empty() {
             self.source_chain().query_compatible_versions()
@@ -432,10 +514,7 @@ impl Connection {
         // Get signer
         let signer = self.target_chain().account().get_signer()?;
 
-        let prefix = self
-            .source_chain()
-            .query_commitment_prefix()
-            .map_err(|e| ConnectionError::chain_query(self.src_chain().id(), e))?;
+        let prefix = self.source_chain().query_commitment_prefix()?;
 
         let counterparty = Counterparty::new(
             self.side_a.client_id().clone(),
@@ -466,18 +545,18 @@ impl Connection {
     }
 
     pub async fn build_connection_open_try_and_send(&self) -> Result<IbcEvent, Error> {
-        let (con_open_try_msgs, src_client_target_height) = self.build_connection_open_try().await?;
+        let (con_open_try_msgs, src_client_target_height) =
+            self.build_connection_open_try().await?;
 
-        // Wait for the height of the application on the destination chain to be higher than
+        // Wait for the height of the application on the target chain to be higher than
         // the height of the consensus state included in the proofs.
-        self.wait_for_dest_app_height_higher_than_consensus_proof_height(src_client_target_height)?;
+        self.wait_for_target_chain_height_higher_than_consensus_height(src_client_target_height)?;
 
         // let tm = TrackedMsgs::new_static(dst_msgs, "ConnectionOpenTry");
 
         let events = self
             .target_chain()
-            .send_messages_and_wait_commit(con_open_try_msgs)
-            .map_err(|e| Error::submit(self.target_chain().id(), e))?;
+            .send_messages_and_wait_commit(con_open_try_msgs)?;
 
         // Find the relevant event for connection try transaction
         let result = events
@@ -486,7 +565,9 @@ impl Connection {
                 matches!(event_with_height.event, IbcEvent::OpenTryConnection(_))
                     || matches!(event_with_height.event, IbcEvent::CosmosChainError(_))
             })
-            .ok_or_else(ConnectionError::missing_connection_try_event)?;
+            .ok_or_else(|| {
+                Error::connection_error(ConnectionError::missing_connection_try_event())
+            })?;
 
         match &result.event {
             IbcEvent::OpenTryConnection(_) => {
@@ -504,5 +585,28 @@ impl Connection {
             side_b: self.side_a.clone(),
             delay_period: self.delay_period.clone(),
         }
+    }
+
+    /// Wait for the application on target chain to advance beyond `consensus_height`.
+    fn wait_for_target_chain_height_higher_than_consensus_height(
+        &self,
+        consensus_height: Height,
+    ) -> Result<(), Error> {
+        let target_chain_latest_height = || {
+            self.target_chain()
+                .query_latest_height()
+        };
+
+        while consensus_height >= target_chain_latest_height()? {
+            warn!(
+                "client consensus proof height too high, \
+                 waiting for destination chain to advance beyond {}",
+                consensus_height
+            );
+
+            thread::sleep(Duration::from_millis(500));
+        }
+
+        Ok(())
     }
 }

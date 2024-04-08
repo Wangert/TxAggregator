@@ -2,7 +2,7 @@ use std::num::ParseIntError;
 use subtle_encoding::Error as SubtleError;
 use utils::encode::error::EncodeError;
 
-use crate::{ibc_core::{ics04_channel::error::ChannelError, ics24_host::error::IdentifierError}, signer::SignerError};
+use crate::{ibc_core::{ics03_connection::error::ConnectionError, ics04_channel::error::ChannelError, ics23_commitment::error::CommitmentError, ics24_host::error::IdentifierError}, proofs::ProofError, signer::SignerError};
 use flex_error::{define_error, TraceError};
 use tendermint::error::Error as TmError;
 use tendermint_proto::Error as TendermintProtoError;
@@ -159,6 +159,15 @@ define_error! {
 
         MissingTrustThreshold
             |_| { "missing trust threshold" },
+        
+        ConnectionMissingProofHeight
+            | _ | { "missing proof height" },
+
+        ConnectionMissingCounterparty
+            | _ | { "missing counterparty" },
+
+        ConnectionMissingConsensusHeight
+            | _ | { "missing consensus height" },
 
         MissingSignedHeader
             |_| { "missing signed header" },
@@ -182,5 +191,19 @@ define_error! {
 
         RawMsgUpdateClientHeaderEmpty
             |_| { "raw msg update client header empty" },
+        ConnectionError
+            [ TraceError<ConnectionError> ]
+            |e| { format!("connection error: {}", e) },
+        CommitmentError
+            [ TraceError<CommitmentError> ]
+            |e| { format!("commitment error: {}", e) },
+        IdentifierError
+            [ TraceError<IdentifierError> ]
+            |e| { format!("identifier error: {}", e) },
+        ProofError
+            [ TraceError<ProofError> ]
+            |e| { format!("proof error: {}", e) },
+        EmptyVersions
+            | _ | { "empty supported versions" },
     }
 }

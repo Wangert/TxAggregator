@@ -23,7 +23,7 @@ pub async fn validate_client_state(
         true,
     ).await;
 
-    let consensus_state = match consensus_state_result {
+    let (consensus_state, _) = match consensus_state_result {
         Ok(cs) => cs,
         Err(e) => return Some(e),
     };

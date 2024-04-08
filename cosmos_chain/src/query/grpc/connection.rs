@@ -18,7 +18,7 @@ use crate::{common::QueryHeight, error::Error, query::trpc};
 pub async fn query_connection(
     grpc_client: &mut ConnectionQueryClient<Channel>,
     trpc_client: &mut HttpClient,
-    connection_id: ConnectionId,
+    connection_id: &ConnectionId,
     height_query: QueryHeight,
     prove: bool,
 ) -> Result<(ConnectionEnd, Option<MerkleProof>), Error> {
@@ -26,7 +26,7 @@ pub async fn query_connection(
         let abci_query = trpc::abci::abci_query(
             trpc_client,
             IBC_QUERY_PATH.to_string(),
-            ConnectionsPath(connection_id).to_string(),
+            ConnectionsPath(connection_id.clone()).to_string(),
             height_query.into(),
             prove,
         )

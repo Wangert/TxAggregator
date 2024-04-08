@@ -15,6 +15,7 @@ use types::ibc_core::ics03_connection::error::ConnectionError;
 use types::ibc_core::ics23_commitment::error::CommitmentError;
 use types::ibc_core::ics24_host::identifier::ConnectionId;
 use types::ibc_events::IbcEvent;
+use types::proofs::ProofError;
 use types::signer::SignerError;
 use utils::encode::error::EncodeError as UtilsEncodeError;
 use utils::file::error::FileError;
@@ -186,6 +187,10 @@ define_error! {
             |e| { format!("connection not found: {0}", e.connection_id) },
         EmptyConnectionId
             |_| { "empty connection id" },
+        HandshakeContinue
+            |_| { "continue handshake" },
+        BadConnectionState
+            |_| { "bad connection state" },
         
         // tx
         Tx 
@@ -207,6 +212,11 @@ define_error! {
             |_| { "invalid metadata" },
         EmptyResponseProof
             |_| { "empty response proof" },
+
+        // proof error
+        ProofError
+            [ TraceError<ProofError> ]
+            |e| { format!("proof error: {}", e) },
 
         // type error
         TypeError

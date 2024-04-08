@@ -52,5 +52,23 @@ define_error! {
             },
         MissingConnectionIdFromEvent
             |_| { "cannot extract connection_id from result" },
+        
+        MissingProofHeight
+            | _ | { "missing proof height" },
+
+        MissingConsensusHeight
+            | _ | { "missing consensus height" },
+        
+        MissingConnectionInitEvent
+            |_| { "no conn init event was in the response" },
+
+        MissingConnectionTryEvent
+            |_| { "no conn try event was in the response" },
+
+        MissingConnectionAckEvent
+            |_| { "no conn ack event was in the response" },
+
+        MissingConnectionConfirmEvent
+            |_| { "no conn confirm event was in the response" },
     }
 }
