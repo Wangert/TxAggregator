@@ -159,15 +159,6 @@ define_error! {
 
         MissingTrustThreshold
             |_| { "missing trust threshold" },
-        
-        ConnectionMissingProofHeight
-            | _ | { "missing proof height" },
-
-        ConnectionMissingCounterparty
-            | _ | { "missing counterparty" },
-
-        ConnectionMissingConsensusHeight
-            | _ | { "missing consensus height" },
 
         MissingSignedHeader
             |_| { "missing signed header" },

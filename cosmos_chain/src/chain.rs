@@ -1,3 +1,4 @@
+use futures::TryFutureExt;
 use http::Uri;
 use ibc_proto::{
     cosmos::{
@@ -19,7 +20,7 @@ use ibc_proto::{
 };
 use log::{error, info, trace};
 use prost::Message;
-use std::sync::Arc;
+use std::{sync::Arc, thread, time::Duration};
 use tendermint::{
     abci::response::Info,
     block::{Header as TendermintHeader, Height as TendermintHeight},
@@ -28,15 +29,18 @@ use tendermint_light_client::types::LightBlock;
 use tendermint_rpc::{Client, HttpClient};
 use tokio::runtime::Runtime;
 use tonic::transport::Channel;
-use tracing::{info as tracing_info, info_span};
+use tracing::{debug, info as tracing_info, info_span};
 use types::{
     ibc_core::{
-        ics02_client::{height::Height, update_client::MsgUpdateClient},
+        ics02_client::{header::AnyHeader, height::Height, update_client::MsgUpdateClient},
         ics03_connection::{
             connection::{ConnectionEnd, State},
             version::Version,
         },
-        ics23_commitment::{commitment::{CommitmentPrefix, CommitmentProofBytes}, merkle_tree::MerkleProof},
+        ics23_commitment::{
+            commitment::{CommitmentPrefix, CommitmentProofBytes},
+            merkle_tree::MerkleProof,
+        },
         ics24_host::{
             identifier::{ChainId, ClientId, ConnectionId},
             path::{ClientConsensusStatePath, IBC_QUERY_PATH},
@@ -45,7 +49,9 @@ use types::{
     ibc_events::{IbcEvent, IbcEventWithHeight},
     light_clients::ics07_tendermint::{
         client_state::ClientState, consensus_state::ConsensusState, header::Header,
-    }, proofs::{ConsensusProof, Proofs},
+    },
+    message::Msg,
+    proofs::{ConsensusProof, Proofs},
 };
 
 use crate::{
@@ -143,8 +149,8 @@ impl CosmosChain {
             batch_messages(&chain_config, &key_account, &account_detail, &memo, msgs)?;
 
         let mut ibc_events_with_height = vec![];
-        let mut trpc_client = self.tendermint_rpc_client().clone();
-        let mut grpc_service_client = self.grpc_tx_sevice_client().clone();
+        let mut trpc_client = self.tendermint_rpc_client();
+        let mut grpc_service_client = self.grpc_tx_sevice_client();
 
         for msg_batch in msg_batches {
             let tx_results = rt.block_on(send_tx(
@@ -229,34 +235,6 @@ impl CosmosChain {
         ))
     }
 
-    // pub async fn grpc_connect(&mut self) {
-    //     trace!("grpc connect");
-    //     tracing_info!("grpc_connect access");
-    //     let grpc_addr = self
-    //         .config
-    //         .grpc_addr
-    //         .as_str()
-    //         .parse::<Uri>()
-    //         .expect("grpc address parse error!");
-    //     let mut auth_client = match AuthQueryClient::connect(grpc_addr.clone()).await {
-    //         Ok(client) => client,
-    //         Err(e) => panic!("grpc auth client connect error: {:?}", e),
-    //     };
-    //     let mut staking_client = match StakingQueryClient::connect(grpc_addr).await {
-    //         Ok(client) => client,
-    //         Err(e) => panic!("grpc staking client connect error: {:?}", e),
-    //     };
-
-    //     auth_client =
-    //         auth_client.max_decoding_message_size(max_grpc_decoding_size().get_bytes() as usize);
-    //     staking_client =
-    //         staking_client.max_decoding_message_size(max_grpc_decoding_size().get_bytes() as usize);
-    //     self.grpc_auth_client = Some(auth_client);
-    //     self.grpc_staking_client = Some(staking_client);
-
-    //     info!("grpc connect success");
-    // }
-
     pub fn query_detail_account_by_address(
         &mut self,
         account_addr: &str,
@@ -286,7 +264,8 @@ impl CosmosChain {
         let mut grpc_client = self.grpc_staking_client();
         trace!("query staking params");
 
-        grpc::staking::query_staking_params(&mut grpc_client)
+        self.rt
+            .block_on(grpc::staking::query_staking_params(&mut grpc_client))
     }
 
     pub fn query_block_header(&self, height: TendermintHeight) -> Result<TendermintHeader, Error> {
@@ -299,47 +278,54 @@ impl CosmosChain {
         let mut trpc = self.tendermint_rpc_client();
         trace!("query latest block");
 
-        trpc::block::latest_block(&mut trpc)
+        self.rt.block_on(trpc::block::latest_block(&mut trpc))
     }
 
-    pub fn query_latest_block_results(&self) -> Result<BlockResults, Error> {
+    pub async fn query_block(&self, height: TendermintHeight) -> Result<Block, Error> {
+        let mut trpc = self.tendermint_rpc_client();
+        trace!("query block");
+
+        trpc::block::block(&mut trpc, height).await
+    }
+
+    pub async fn query_latest_block_results(&self) -> Result<BlockResults, Error> {
         let mut trpc = self.tendermint_rpc_client();
         trace!("query latest block results");
 
-        self.rt
-            .block_on(trpc::block::latest_block_results(&mut trpc))
+        trpc::block::latest_block_results(&mut trpc).await
     }
 
-    pub fn query_latest_height(&self) -> Result<Height, Error> {
-        let latest_block_results = self.query_latest_block_results()?;
-        let block_header = self.query_block_header(latest_block_results.height)?;
+    pub async fn query_latest_height(&self) -> Result<Height, Error> {
+        let latest_block_results = self.query_latest_block_results().await?;
+        let block_header = self.query_block(latest_block_results.height).await?.header;
         let revision_number = ChainId::chain_version(block_header.chain_id.as_str());
-        let revision_height = u64::from(self.query_latest_block_results()?.height);
+        let revision_height = u64::from(self.query_latest_block_results().await?.height);
 
         Height::new(revision_number, revision_height).map_err(Error::type_error)
     }
 
-    pub fn query_client_consensus_state(
+    pub async fn query_client_consensus_state(
         &self,
         client_id: &ClientId,
         target_height: Height,
         query_height: QueryHeight,
         prove: bool,
     ) -> Result<(ConsensusState, Option<MerkleProof>), Error> {
-        let mut trpc_client = self.tendermint_rpc_client().clone();
+        let mut trpc_client = self.tendermint_rpc_client();
         let data = ClientConsensusStatePath {
             client_id: client_id.clone(),
             epoch: target_height.revision_number(),
             height: target_height.revision_height(),
         };
 
-        let abci_query = self.rt.block_on(trpc::abci::abci_query(
+        let abci_query = trpc::abci::abci_query(
             &mut trpc_client,
             IBC_QUERY_PATH.to_string(),
             data.to_string(),
             query_height.into(),
             prove,
-        ))?;
+        )
+        .await?;
 
         let consensus_state: ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
             .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
@@ -347,43 +333,43 @@ impl CosmosChain {
         Ok((consensus_state, abci_query.merkle_proof))
     }
 
-    pub fn query_client_state(
+    pub async fn query_client_state(
         &self,
         client_id: &ClientId,
         query_height: QueryHeight,
         prove: bool,
     ) -> Result<(ClientState, Option<MerkleProof>), Error> {
         let mut trpc_client = self.tendermint_rpc_client();
-        self.rt.block_on(trpc::abci::abci_query_client_state(
+        trpc::abci::abci_query_client_state(
             &mut trpc_client,
             client_id.clone(),
             query_height,
             prove,
-        ))
+        )
+        .await
     }
 
-    pub fn query_tendermint_status(&self) -> Result<TendermintStatus, Error> {
+    pub async fn query_tendermint_status(&self) -> Result<TendermintStatus, Error> {
         let mut trpc_client = self.tendermint_rpc_client();
-        self.rt
-            .block_on(trpc::consensus::tendermint_status(&mut trpc_client))
+        trpc::consensus::tendermint_status(&mut trpc_client).await
     }
 
-    pub fn query_consensus_state_heights(
+    pub async fn query_consensus_state_heights(
         &self,
         client_id: &ClientId,
     ) -> Result<Vec<Height>, Error> {
         let mut grpc_client = self.grpc_ibcclient_client();
-        query_all_consensus_state_heights(&mut grpc_client, client_id.clone())
+        query_all_consensus_state_heights(&mut grpc_client, client_id.clone()).await
     }
 
-    pub fn query_light_blocks(
+    pub async fn query_light_blocks(
         &self,
         client_state: &ClientState,
         target_height: Height,
     ) -> Result<Verified<LightBlock>, Error> {
         let mut trpc_client = self.tendermint_rpc_client();
         let chain_config = self.config.clone();
-        let chain_status = self.query_tendermint_status()?;
+        let chain_status = self.query_tendermint_status().await?;
 
         verify_block_header_and_fetch_light_block(
             &mut trpc_client,
@@ -395,7 +381,7 @@ impl CosmosChain {
         )
     }
 
-    pub fn query_trusted_height(
+    pub async fn query_trusted_height(
         &self,
         target_height: Height,
         client_id: &ClientId,
@@ -410,7 +396,7 @@ impl CosmosChain {
         } else {
             // Potential optimization: cache the list of consensus heights
             // so that subsequent fetches can be fast.
-            let cs_heights = self.query_consensus_state_heights(client_id)?;
+            let cs_heights = self.query_consensus_state_heights(client_id).await?;
 
             // Iterate through the available consesnsus heights and find one
             // that is lower than the target height.
@@ -421,7 +407,7 @@ impl CosmosChain {
         }
     }
 
-    pub fn build_connection_proofs_and_client_state(
+    pub async fn build_connection_proofs_and_client_state(
         &self,
         message_type: ConnectionMsgType,
         connection_id: &ConnectionId,
@@ -464,8 +450,9 @@ impl CosmosChain {
 
         match message_type {
             ConnectionMsgType::OpenTry | ConnectionMsgType::OpenAck => {
-                let (client_state, maybe_client_state_proof) =
-                    self.query_client_state(client_id, QueryHeight::Specific(height), true)?;
+                let (client_state, maybe_client_state_proof) = self
+                    .query_client_state(client_id, QueryHeight::Specific(height), true)
+                    .await?;
 
                 let Some(client_state_proof) = maybe_client_state_proof else {
                     return Err(Error::empty_response_proof());
@@ -477,14 +464,14 @@ impl CosmosChain {
                 );
 
                 let consensus_state_proof = {
-                    let (_, maybe_consensus_state_proof) = self.query_client_consensus_state(
-                        
+                    let (_, maybe_consensus_state_proof) = self
+                        .query_client_consensus_state(
                             client_id,
                             client_state.latest_height,
                             QueryHeight::Specific(height),
-                    
-                        true,
-                    )?;
+                            true,
+                        )
+                        .await?;
 
                     let Some(consensus_state_proof) = maybe_consensus_state_proof else {
                         return Err(Error::empty_response_proof());
@@ -510,7 +497,8 @@ impl CosmosChain {
         Ok((
             client_state_option,
             Proofs::new(
-                CommitmentProofBytes::try_from(connection_proof).map_err(Error::commitment_error)?,
+                CommitmentProofBytes::try_from(connection_proof)
+                    .map_err(Error::commitment_error)?,
                 client_proof_option,
                 consensus_proof_option,
                 None, // TODO: Retrieve host consensus proof when available
@@ -521,7 +509,7 @@ impl CosmosChain {
         ))
     }
 
-    pub fn adjust_headers(
+    pub async fn adjust_headers(
         &self,
         trusted_height: Height,
         target: LightBlock,
@@ -529,7 +517,7 @@ impl CosmosChain {
     ) -> Result<(Header, Vec<Header>), Error> {
         let mut trpc_client = self.tendermint_rpc_client();
         let chain_config = self.config.clone();
-        let chain_status = self.query_tendermint_status()?;
+        let chain_status = self.query_tendermint_status().await?;
 
         let prodio =
             build_light_client_io(&mut trpc_client, &chain_config, &chain_status.node_info.id);
@@ -585,23 +573,103 @@ impl CosmosChain {
         Ok((target_header, supporting_headers))
     }
 
-    pub fn validate_client_state(
+    pub async fn validate_client_state(
         &self,
         client_id: &ClientId,
         client_state: &ClientState,
     ) -> Option<Error> {
         let mut trpc_client = self.tendermint_rpc_client();
-        self.rt.block_on(validate_client_state(
-            &mut trpc_client,
-            client_id.clone(),
-            client_state,
-        ))
+        validate_client_state(&mut trpc_client, client_id.clone(), client_state).await
+    }
+
+    pub async fn build_update_client_own(
+        &self,
+        client_id: &ClientId,
+        target_height: Height,
+    ) -> Result<Vec<Any>, Error> {
+        trace!("build_update_client_own");
+        // query consensus state on source chain
+        let client_consensus_state_on_source = self
+            .query_client_consensus_state(&client_id, target_height, QueryHeight::Latest, false)
+            .await;
+
+        if let Ok(_) = client_consensus_state_on_source {
+            debug!("consensus state already exists at height {target_height}, skipping update");
+            return Ok(vec![]);
+        }
+
+        let target_chain_latest_height = || self.query_latest_height();
+
+        while target_chain_latest_height().await? < target_height {
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        // validate client state
+        let (client_state, _) = self
+            .query_client_state(&client_id, QueryHeight::Latest, true)
+            .await?;
+        let client_state_validate = self.validate_client_state(&client_id, &client_state).await;
+
+        if let Some(e) = client_state_validate {
+            return Err(e);
+        }
+
+        // Obtain the required block based on the target block height and client_state
+        let verified_blocks = self
+            .query_light_blocks(&client_state, target_height)
+            .await?;
+
+        let trusted_height = self
+            .query_trusted_height(target_height, &client_id, &client_state)
+            .await?;
+
+        let (target_header, support_headers) = self
+            .adjust_headers(
+                trusted_height,
+                verified_blocks.target,
+                verified_blocks.supporting,
+            )
+            .await
+            .map(|(target_header, support_headers)| {
+                let header = AnyHeader::from(target_header);
+                let support: Vec<AnyHeader> = support_headers
+                    .into_iter()
+                    .map(|h| AnyHeader::from(h))
+                    .collect();
+                (header, support)
+            })?;
+
+        let signer = self.account().get_signer()?;
+
+        let mut msgs = vec![];
+        for header in support_headers {
+            msgs.push(MsgUpdateClient {
+                header: header.into(),
+                client_id: client_id.clone(),
+                signer: signer.clone(),
+            });
+        }
+
+        msgs.push(MsgUpdateClient {
+            header: target_header.into(),
+            signer,
+            client_id: client_id.clone(),
+        });
+
+        let encoded_messages = msgs.into_iter().map(Msg::to_any).collect::<Vec<Any>>();
+
+        return Ok(encoded_messages);
     }
 }
 
 #[cfg(test)]
 pub mod chain_tests {
+    use std::str::FromStr;
+
     use log::info;
+    use types::ibc_core::ics24_host::identifier::ClientId;
+
+    use crate::common::QueryHeight;
 
     use super::CosmosChain;
 
@@ -613,7 +681,7 @@ pub mod chain_tests {
     pub async fn grpc_connect_works() {
         init();
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
     }
 
@@ -621,7 +689,7 @@ pub mod chain_tests {
     pub async fn query_staking_params_works() {
         init();
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
 
         let staking_params = cosmos_chain
@@ -629,5 +697,48 @@ pub mod chain_tests {
             .expect("query_staking_params error!");
 
         println!("staking params: {:?}", staking_params);
+    }
+
+    #[test]
+    pub fn query_client_state_works() {
+        init();
+        let file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
+
+        let rt = cosmos_chain.rt.clone();
+        let client_id = ClientId::from_str("07-tendermint-6").expect("client id error!");
+        let client_state_result =
+            rt.block_on(cosmos_chain.query_client_state(&client_id, QueryHeight::Latest, true));
+
+        match client_state_result {
+            Ok((client_state, _)) => println!("client_state: {:?}", client_state),
+            Err(e) => panic!("{}", e),
+        }
+    }
+
+    #[test]
+    pub fn update_client_works() {
+        init();
+        let file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let mut cosmos_chain = CosmosChain::new(file_path);
+
+        let rt = cosmos_chain.rt.clone();
+        let target_height = rt
+            .block_on(cosmos_chain.query_latest_height())
+            .expect("query latest height error!");
+        let client_id = ClientId::from_str("07-tendermint-6").expect("client id error!");
+
+        let update_client_msgs = rt
+            .block_on(cosmos_chain.build_update_client_own(&client_id, target_height))
+            .expect("build update client error!");
+
+        let update_client_result = cosmos_chain.send_messages_and_wait_commit(update_client_msgs);
+
+        match update_client_result {
+            Ok(event) => println!("Event: {:?}", event),
+            Err(e) => panic!("{}", e),
+        }
     }
 }

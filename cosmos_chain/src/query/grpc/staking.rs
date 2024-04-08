@@ -6,14 +6,14 @@ use tonic::transport::Channel;
 
 use crate::error::Error;
 
-pub fn query_staking_params(
+pub async fn query_staking_params(
     grpc_client: &mut StakingQueryClient<Channel>,
 ) -> Result<Params, Error> {
     let request = tonic::Request::new(StakingQueryParamsRequest {});
 
-    let rt = tokio::runtime::Runtime::new().expect("runtime create error");
-    let response = rt
-        .block_on(grpc_client.params(request))
+    let response = grpc_client
+        .params(request)
+        .await
         .map_err(|e| Error::grpc_status(e, "query staking params".into()))?;
 
     let staking_params = response

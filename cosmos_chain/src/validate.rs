@@ -30,7 +30,7 @@ pub async fn validate_client_state(
 
     let consensus_state_time = consensus_state.timestamp;
 
-    let latest_block = trpc::block::latest_block(src_trpc);
+    let latest_block = trpc::block::latest_block(src_trpc).await;
 
     let latest_block = match latest_block {
         Ok(lb) => lb,

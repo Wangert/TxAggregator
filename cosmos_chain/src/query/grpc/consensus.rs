@@ -8,7 +8,7 @@ use types::ibc_core::{ics02_client::height::Height, ics24_host::identifier::Clie
 
 use crate::{common::PageRequest, error::Error};
 
-pub fn query_all_consensus_state_heights(
+pub async fn query_all_consensus_state_heights(
     grpc_client: &mut IbcClientQueryClient<Channel>,
     client_id: ClientId,
 ) -> Result<Vec<Height>, Error> {
@@ -24,9 +24,7 @@ pub fn query_all_consensus_state_heights(
         pagination: Some(page_request.into()),
     });
 
-    let rt = tokio::runtime::Runtime::new().expect("runtime create error");
-    let response = rt
-        .block_on(grpc_client.consensus_state_heights(request))
+    let response = grpc_client.consensus_state_heights(request).await
         .map_err(|e| Error::grpc_status(e, "query consensus state heights".into()))?
         .into_inner();
 
@@ -94,8 +92,9 @@ pub mod grpc_consensus_tests {
 
         let client_id = ClientId::new("07-tendermint", 1).expect("client id new error!");
 
-        let heights =
-            grpc::consensus::query_all_consensus_state_heights(&mut grpc_client, client_id);
+        let rt = cosmos_chain.rt.clone();
+        let heights = rt.block_on(
+            grpc::consensus::query_all_consensus_state_heights(&mut grpc_client, client_id));
 
         match heights {
             Ok(h) => println!("heights: {:?}", h),

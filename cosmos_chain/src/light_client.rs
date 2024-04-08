@@ -17,7 +17,10 @@ use tendermint_light_client::{
 };
 use tendermint_rpc::HttpClient;
 use tracing::trace;
-use types::{ibc_core::ics02_client::height::Height, light_clients::ics07_tendermint::{client_state::ClientState, header::Header}};
+use types::{
+    ibc_core::ics02_client::height::Height,
+    light_clients::ics07_tendermint::{client_state::ClientState, header::Header},
+};
 
 use crate::{config::CosmosChainConfig, error::Error};
 
@@ -47,8 +50,14 @@ pub fn verify_block_header_and_fetch_light_block(
         let trpc_io = build_light_client_io(trpc, chain_config, node_id);
         let light_block = fetch_light_block(&trpc_io, target_height)?;
 
-        println!("[verify_block_header_and_fetch_light_block] Light Block: {:?}", light_block);
-        return Ok(Verified { target: light_block, supporting: vec![] });
+        println!(
+            "[verify_block_header_and_fetch_light_block] Light Block: {:?}",
+            light_block
+        );
+        return Ok(Verified {
+            target: light_block,
+            supporting: vec![],
+        });
     }
 
     let temporary_light_client = create_temporary_light_client(
@@ -77,7 +86,10 @@ pub fn verify_block_header_and_fetch_light_block(
         .filter(|lb| lb.height() != light_block.height())
         .collect_vec();
 
-    Ok(Verified { target: light_block, supporting: supporting_blocks })
+    Ok(Verified {
+        target: light_block,
+        supporting: supporting_blocks,
+    })
 }
 
 pub fn create_temporary_light_client(
@@ -145,7 +157,6 @@ fn adjust_headers(
     target: LightBlock,
     supporting: Vec<LightBlock>,
 ) -> Result<(Header, Vec<Header>), Error> {
-
     trace!(
         trusted = %trusted_height, target = %target.height(),
         "adjusting headers with {} supporting headers", supporting.len()
@@ -173,7 +184,8 @@ fn adjust_headers(
         current_trusted_height = header.height();
 
         // Therefore we can now trust the next validator set, see NOTE above.
-        current_trusted_validators = fetch_light_block(&prodio, header.height().increment())?.validators;
+        current_trusted_validators =
+            fetch_light_block(&prodio, header.height().increment())?.validators;
 
         supporting_headers.push(header);
     }
@@ -183,8 +195,7 @@ fn adjust_headers(
     //
     // b) Set the trusted validators of the target header to the validators of the successor to
     // the last supporting header if any, or to the initial trusted validators otherwise.
-    let (latest_trusted_height, latest_trusted_validator_set) = match supporting_headers.last()
-    {
+    let (latest_trusted_height, latest_trusted_validator_set) = match supporting_headers.last() {
         Some(prev_header) => {
             let prev_succ = fetch_light_block(&prodio, prev_header.height().increment())?;
             (prev_header.height(), prev_succ.validators)
@@ -204,9 +215,13 @@ fn adjust_headers(
 
 #[cfg(test)]
 pub mod light_client_tests {
+    use futures::TryFutureExt;
     use types::ibc_core::{ics02_client::height::Height, ics24_host::identifier::chain_version};
 
-    use crate::{chain::CosmosChain, query::{grpc::connect::grpc_auth_client, trpc}};
+    use crate::{
+        chain::CosmosChain,
+        query::{grpc::connect::grpc_auth_client, trpc},
+    };
 
     use super::{build_light_client_io, fetch_light_block};
 
@@ -216,16 +231,25 @@ pub mod light_client_tests {
             "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
-        let mut trpc_client = trpc::connect::tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
-        let latest_block = trpc::block::latest_block(&mut trpc_client).expect("latest block error!");
+        let mut trpc_client =
+            trpc::connect::tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
+        let latest_block = cosmos_chain
+            .rt
+            .block_on(trpc::block::latest_block(&mut trpc_client))
+            .expect("latest block error!");
 
         let latest_height = Height::new(
             chain_version(latest_block.header.chain_id.as_str()),
             u64::from(latest_block.header.height),
-        ).expect("latest height error!");
+        )
+        .expect("latest height error!");
 
-        let status = cosmos_chain.query_tendermint_status().expect("query tendermint status error");
-        let prod_io = build_light_client_io(&mut trpc_client, &cosmos_chain.config, &status.node_info.id);
+        let rt = cosmos_chain.rt.clone();
+        let status = rt
+            .block_on(cosmos_chain.query_tendermint_status())
+            .expect("query tendermint status error");
+        let prod_io =
+            build_light_client_io(&mut trpc_client, &cosmos_chain.config, &status.node_info.id);
 
         let light_block = fetch_light_block(&prod_io, latest_height);
 
@@ -241,16 +265,25 @@ pub mod light_client_tests {
             "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
-        let mut trpc_client = trpc::connect::tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
-        let latest_block = trpc::block::latest_block(&mut trpc_client).expect("latest block error");
+        let mut trpc_client =
+            trpc::connect::tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
+        let latest_block = cosmos_chain
+            .rt
+            .block_on(trpc::block::latest_block(&mut trpc_client))
+            .expect("latest block error");
 
         let latest_height = Height::new(
             chain_version(latest_block.header.chain_id.as_str()),
             u64::from(latest_block.header.height),
-        ).expect("latest height error!");
+        )
+        .expect("latest height error!");
 
-        let status = cosmos_chain.query_tendermint_status().expect("query tendermint status error");
-        let prod_io = build_light_client_io(&mut trpc_client, &cosmos_chain.config, &status.node_info.id);
+        let rt = cosmos_chain.rt.clone();
+        let status = rt
+            .block_on(cosmos_chain.query_tendermint_status())
+            .expect("query tendermint status error");
+        let prod_io =
+            build_light_client_io(&mut trpc_client, &cosmos_chain.config, &status.node_info.id);
 
         let light_block = fetch_light_block(&prod_io, latest_height);
 

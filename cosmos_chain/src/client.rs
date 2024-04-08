@@ -47,12 +47,12 @@ pub async fn build_update_client_request(
 ) -> Result<MsgUpdateClient, Error> {
     // query target height
     let target_height = match target_query_height {
-        QueryHeight::Latest => query_latest_height(src_trpc_client)?,
+        QueryHeight::Latest => query_latest_height(src_trpc_client).await?,
         QueryHeight::Specific(height) => height,
     };
 
     // Wait for the source network to produce block(s) & reach `target_height`.
-    while query_latest_height(src_trpc_client)? < target_height {
+    while query_latest_height(src_trpc_client).await? < target_height {
         thread::sleep(Duration::from_millis(100));
     }
 
@@ -73,7 +73,7 @@ pub async fn build_update_client_request(
     }
 
     let trusted_height =
-        query_trusted_height(dst_grpc_client, client_id, &client_state, target_height)?;
+        query_trusted_height(dst_grpc_client, client_id, &client_state, target_height).await?;
 
     // if trusted_height >= target_height {
     //     warn!(
@@ -103,7 +103,7 @@ pub async fn build_create_client_request(
         create_client_options,
         src_chain_config,
         dst_chain_config,
-    )?;
+    ).await?;
 
     println!("access build consensus state");
 
@@ -132,7 +132,7 @@ pub async fn build_create_client_request(
     ))
 }
 
-fn build_client_state(
+async fn build_client_state(
     trpc_client: &mut HttpClient,
     grpc_staking_client: &mut StakingQueryClient<Channel>,
     create_client_options: &CreateClientOptions,
@@ -140,7 +140,7 @@ fn build_client_state(
     dst_chain_config: &CosmosChainConfig,
 ) -> Result<ClientState, Error> {
     // query latest height
-    let latest_block = trpc::block::latest_block(trpc_client)?;
+    let latest_block = trpc::block::latest_block(trpc_client).await?;
     // let abci_info = trpc::abci::abci_info(trpc_client).await?;
     // let last_block_header_info =
     //     trpc::block::detail_block_header(trpc_client, abci_info.last_block_height).await?;
@@ -158,7 +158,7 @@ fn build_client_state(
         ClientSettings::new(create_client_options, src_chain_config, dst_chain_config);
 
     // Get unbonding_period in the parameter list of the staking module
-    let unbonding_period = grpc::staking::query_staking_params(grpc_staking_client)?
+    let unbonding_period = grpc::staking::query_staking_params(grpc_staking_client).await?
         .unbonding_time
         .ok_or_else(|| {
             Error::cosmos_params("empty unbonding time in staking params".to_string())

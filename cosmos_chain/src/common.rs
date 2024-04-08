@@ -99,8 +99,8 @@ impl From<PageRequest> for IbcPageRequest {
     }
 }
 
-pub fn query_latest_height(trpc: &mut HttpClient) -> Result<Height, Error> {
-    let latest_block = trpc::block::latest_block(trpc)?;
+pub async fn query_latest_height(trpc: &mut HttpClient) -> Result<Height, Error> {
+    let latest_block = trpc::block::latest_block(trpc).await?;
 
     let latest_height = Height::new(
         ChainId::chain_version(latest_block.header.chain_id.as_str()),
@@ -111,7 +111,7 @@ pub fn query_latest_height(trpc: &mut HttpClient) -> Result<Height, Error> {
     Ok(latest_height)
 }
 
-pub fn query_trusted_height(
+pub async fn query_trusted_height(
     dst_grpc: &mut IbcClientQueryClient<Channel>,
     client_id: ClientId,
     client_state: &ClientState,
@@ -123,7 +123,7 @@ pub fn query_trusted_height(
         return Ok(client_state_latest_height);
     } else {
         let client_state_heights =
-            grpc::consensus::query_all_consensus_state_heights(dst_grpc, client_id)?;
+            grpc::consensus::query_all_consensus_state_heights(dst_grpc, client_id).await?;
 
         client_state_heights
             .into_iter()

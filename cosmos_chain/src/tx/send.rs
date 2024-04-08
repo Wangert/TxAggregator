@@ -161,6 +161,58 @@ pub mod tx_send_tests {
     use types::ibc_core::ics24_host::identifier::ChainId;
     use utils::encode::protobuf;
 
+    // #[actix_rt::test]
+    // pub async fn send_tx_with_fee_async_works() {
+    //     let file_path =
+    //         "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+    //     let cosmos_chain = CosmosChain::new(file_path);
+
+    //     let account = Secp256k1Account::new(
+    //         &cosmos_chain.config.chain_a_key_path,
+    //         &cosmos_chain.config.hd_path,
+    //     )
+    //     .expect("account error!");
+
+    //     let mut trpc_client = cosmos_chain.tendermint_rpc_client();
+    //     let mut grpc_staking_client = cosmos_chain.grpc_staking_client();
+    //     // let mut trpc_client = cosmos_chain.tendermint_rpc_client().unwrap();
+    //     // let mut grpc_staking_client = cosmos_chain.grpc_staking_client().unwrap();
+
+    //     let create_client_options = CreateClientOptions {
+    //         max_clock_drift: Some(Duration::from_secs(cosmos_chain.config.max_block_time)),
+    //         trusting_period: Some(Duration::from_secs(
+    //             cosmos_chain.config.trusting_period * 86400,
+    //         )),
+    //         trust_level: None,
+    //     };
+
+    //     let src_chain_config = cosmos_chain.config.clone();
+    //     let dst_chain_config = cosmos_chain.config.clone();
+
+    //     println!("access build create client request");
+    //     let msg_create_client = build_create_client_request(
+    //         &mut trpc_client,
+    //         &mut grpc_staking_client,
+    //         &create_client_options,
+    //         &src_chain_config,
+    //         &dst_chain_config,
+    //     ).await
+    //     .expect("msg_create_client error!");
+
+    //     let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
+    //     let protobuf_value =
+    //         protobuf::encode_to_bytes(&ibc_msg_create_client).expect("protobuf encode error!");
+    //     let msg = Any {
+    //         type_url: "/ibc.core.client.v1.MsgCreateClient".to_string(),
+    //         value: protobuf_value,
+    //     };
+
+    //     let messages = vec![msg];
+    //     let tx_results = cosmos_chain.send_messages_and_wait_commit(messages).expect("send messages error!");
+
+    //     println!("tx_results: {:?}", tx_results);
+    // }
+
     #[test]
     pub fn send_tx_with_fee_wokrs() {
         let file_path =

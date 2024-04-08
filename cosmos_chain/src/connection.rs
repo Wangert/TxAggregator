@@ -97,31 +97,32 @@ impl Connection {
 
         let client_id = self.source_chain_client_id();
         // query consensus state on source chain
-        let client_consensus_state_on_source = self.source_chain().query_client_consensus_state(
-            &client_id,
-            target_height,
-            QueryHeight::Latest,
-            false,
-        );
+        let client_consensus_state_on_source = self
+            .source_chain()
+            .query_client_consensus_state(&client_id, target_height, QueryHeight::Latest, false)
+            .await;
 
         if let Ok(_) = client_consensus_state_on_source {
             debug!("consensus state already exists at height {target_height}, skipping update");
             return Ok(vec![]);
         }
 
-        let target_chain_latest_height = || self.target_chain().query_latest_height();
+        let target_chain = self.target_chain().clone();
+        let target_chain_latest_height = || target_chain.query_latest_height();
 
-        while target_chain_latest_height()? < target_height {
+        while target_chain_latest_height().await? < target_height {
             thread::sleep(Duration::from_millis(100));
         }
 
         // validate client state
-        let (client_state, _) =
-            self.source_chain()
-                .query_client_state(&client_id, QueryHeight::Latest, true)?;
+        let (client_state, _) = self
+            .source_chain()
+            .query_client_state(&client_id, QueryHeight::Latest, true)
+            .await?;
         let client_state_validate = self
             .source_chain()
-            .validate_client_state(&client_id, &client_state);
+            .validate_client_state(&client_id, &client_state)
+            .await;
 
         if let Some(e) = client_state_validate {
             return Err(e);
@@ -130,11 +131,12 @@ impl Connection {
         // Obtain the required block based on the target block height and client_state
         let verified_blocks = self
             .target_chain()
-            .query_light_blocks(&client_state, target_height)?;
+            .query_light_blocks(&client_state, target_height)
+            .await?;
 
         let trusted_height =
             self.source_chain()
-                .query_trusted_height(target_height, &client_id, &client_state)?;
+                .query_trusted_height(target_height, &client_id, &client_state).await?;
 
         let (target_header, support_headers) = self
             .target_chain()
@@ -143,6 +145,7 @@ impl Connection {
                 verified_blocks.target,
                 verified_blocks.supporting,
             )
+            .await
             .map(|(target_header, support_headers)| {
                 let header = AnyHeader::from(target_header);
                 let support: Vec<AnyHeader> = support_headers
@@ -182,31 +185,32 @@ impl Connection {
 
         let client_id = self.target_chain_client_id();
         // query consensus state on source chain
-        let client_consensus_state_on_target = self.target_chain().query_client_consensus_state(
-            &client_id,
-            target_height,
-            QueryHeight::Latest,
-            false,
-        );
+        let client_consensus_state_on_target = self
+            .target_chain()
+            .query_client_consensus_state(&client_id, target_height, QueryHeight::Latest, false)
+            .await;
 
         if let Ok(_) = client_consensus_state_on_target {
             debug!("consensus state already exists at height {target_height}, skipping update");
             return Ok(vec![]);
         }
 
-        let source_chain_latest_height = || self.source_chain().query_latest_height();
+        let source_chain = self.source_chain().clone();
+        let source_chain_latest_height = || source_chain.query_latest_height();
 
-        while source_chain_latest_height()? < target_height {
+        while source_chain_latest_height().await? < target_height {
             thread::sleep(Duration::from_millis(100));
         }
 
         // validate client state
-        let (client_state, _) =
-            self.target_chain()
-                .query_client_state(&client_id, QueryHeight::Latest, true)?;
+        let (client_state, _) = self
+            .target_chain()
+            .query_client_state(&client_id, QueryHeight::Latest, true)
+            .await?;
         let client_state_validate = self
             .target_chain()
-            .validate_client_state(&client_id, &client_state);
+            .validate_client_state(&client_id, &client_state)
+            .await;
 
         if let Some(e) = client_state_validate {
             return Err(e);
@@ -215,11 +219,12 @@ impl Connection {
         // Obtain the required block based on the target block height and client_state
         let verified_blocks = self
             .source_chain()
-            .query_light_blocks(&client_state, target_height)?;
+            .query_light_blocks(&client_state, target_height)
+            .await?;
 
         let trusted_height =
             self.source_chain()
-                .query_trusted_height(target_height, &client_id, &client_state)?;
+                .query_trusted_height(target_height, &client_id, &client_state).await?;
 
         let (target_header, support_headers) = self
             .source_chain()
@@ -228,6 +233,7 @@ impl Connection {
                 verified_blocks.target,
                 verified_blocks.supporting,
             )
+            .await
             .map(|(target_header, support_headers)| {
                 let header = AnyHeader::from(target_header);
                 let support: Vec<AnyHeader> = support_headers
@@ -356,29 +362,23 @@ impl Connection {
         let old_con_b_id = self.side_b.connection_id();
 
         let (a_connection, _) = self.source_chain().query_connection(
-            old_con_a_id.as_ref().ok_or_else(Error::empty_connection_id)?,
+            old_con_a_id
+                .as_ref()
+                .ok_or_else(Error::empty_connection_id)?,
             QueryHeight::Latest,
             false,
         )?;
         let a_counterparty_id = a_connection.counterparty().connection_id();
 
         if a_counterparty_id.is_some() && a_counterparty_id != old_con_b_id.as_ref() {
-            // warn!(
-            //     "updating the expected {} of side_b({}) since it is different than the \
-            //     counterparty of {}: {}, on {}. This is typically caused by crossing handshake \
-            //     messages in the presence of multiple relayers.",
-            //     PrettyOption(&relayer_b_id),
-            //     self.b_chain().id(),
-            //     PrettyOption(&relayer_a_id),
-            //     PrettyOption(&a_counterparty_id),
-            //     self.a_chain().id(),
-            // );
             self.side_b.connection_id = a_counterparty_id.cloned();
         }
 
         let updated_con_b_id = self.side_b.connection_id();
         let (b_connection, _) = self.target_chain().query_connection(
-            old_con_b_id.as_ref().ok_or_else(Error::empty_connection_id)?,
+            old_con_b_id
+                .as_ref()
+                .ok_or_else(Error::empty_connection_id)?,
             crate::common::QueryHeight::Latest,
             false,
         )?;
@@ -458,11 +458,9 @@ impl Connection {
             .connection_id()
             .ok_or_else(Error::empty_connection_id)?;
 
-        let (src_connection, _) = self.source_chain().query_connection(
-            &src_connection_id,
-            QueryHeight::Latest,
-            false,
-        )?;
+        let (src_connection, _) =
+            self.source_chain()
+                .query_connection(&src_connection_id, QueryHeight::Latest, false)?;
 
         // Cross-check the delay_period
         let delay = if src_connection.delay_period() != self.delay_period {
@@ -480,7 +478,7 @@ impl Connection {
         };
 
         // Build add send the message(s) for updating client on source
-        let src_client_target_height = self.target_chain().query_latest_height()?;
+        let src_client_target_height = self.target_chain().query_latest_height().await?;
         let update_client_msgs = self
             .build_update_client_on_source_chain(src_client_target_height)
             .await?;
@@ -490,7 +488,7 @@ impl Connection {
         self.source_chain()
             .send_messages_and_wait_commit(update_client_msgs)?;
 
-        let query_height = self.source_chain().query_latest_height()?;
+        let query_height = self.source_chain().query_latest_height().await?;
         let (client_state, proofs) = self
             .source_chain()
             .build_connection_proofs_and_client_state(
@@ -498,7 +496,8 @@ impl Connection {
                 &src_connection_id,
                 &self.side_a.client_id(),
                 query_height,
-            )?;
+            )
+            .await?;
 
         // Build message(s) for updating client on destination
         let mut msgs = self
@@ -550,7 +549,7 @@ impl Connection {
 
         // Wait for the height of the application on the target chain to be higher than
         // the height of the consensus state included in the proofs.
-        self.wait_for_target_chain_height_higher_than_consensus_height(src_client_target_height)?;
+        self.wait_for_target_chain_height_higher_than_consensus_height(src_client_target_height).await?;
 
         // let tm = TrackedMsgs::new_static(dst_msgs, "ConnectionOpenTry");
 
@@ -588,16 +587,14 @@ impl Connection {
     }
 
     /// Wait for the application on target chain to advance beyond `consensus_height`.
-    fn wait_for_target_chain_height_higher_than_consensus_height(
+    async fn wait_for_target_chain_height_higher_than_consensus_height(
         &self,
         consensus_height: Height,
     ) -> Result<(), Error> {
-        let target_chain_latest_height = || {
-            self.target_chain()
-                .query_latest_height()
-        };
+        let target_chain = self.target_chain().clone();
+        let target_chain_latest_height = || target_chain.query_latest_height();
 
-        while consensus_height >= target_chain_latest_height()? {
+        while consensus_height >= target_chain_latest_height().await? {
             warn!(
                 "client consensus proof height too high, \
                  waiting for destination chain to advance beyond {}",
