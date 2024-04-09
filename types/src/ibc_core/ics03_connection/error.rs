@@ -23,6 +23,10 @@ define_error! {
             },
         MissingCounterparty
             | _ | { "missing counterparty" },
+        
+        MissingConnectionId
+            { chain_id: ChainId }
+            | e | { format_args!("missing connection id: {0}", e.chain_id) },
 
         InvalidIdentifier
             [ TraceError<IdentifierError> ]

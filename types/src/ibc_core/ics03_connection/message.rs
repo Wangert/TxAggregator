@@ -15,6 +15,7 @@ use crate::{
 use ibc_proto::{
     google::protobuf::Any,
     ibc::core::connection::v1::{
+        MsgConnectionOpenAck as RawMsgConnectionOpenAck,
         MsgConnectionOpenInit as RawMsgConnectionOpenInit,
         MsgConnectionOpenTry as RawMsgConnectionOpenTry,
     },
@@ -23,6 +24,7 @@ use ibc_proto::{
 
 pub const OPEN_INIT_TYPE_URL: &str = "/ibc.core.connection.v1.MsgConnectionOpenInit";
 pub const OPEN_TRY_TYPE_URL: &str = "/ibc.core.connection.v1.MsgConnectionOpenTry";
+pub const OPEN_ACK_TYPE_URL: &str = "/ibc.core.connection.v1.MsgConnectionOpenAck";
 pub const ROUTER_KEY: &str = "ibc";
 ///
 /// Message definition `MsgConnectionOpenInit`  (i.e., the `ConnOpenInit` datagram).
@@ -236,6 +238,131 @@ impl From<MsgConnectionOpenTry> for RawMsgConnectionOpenTry {
                 .proofs
                 .consensus_proof()
                 .map_or_else(|| None, |h| Some(h.height().into())),
+            signer: ics_msg.signer.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MsgConnectionOpenAck {
+    pub connection_id: ConnectionId,
+    pub counterparty_connection_id: ConnectionId,
+    pub client_state: Option<Any>,
+    pub proofs: Proofs,
+    pub version: Version,
+    pub signer: Signer,
+}
+
+impl MsgConnectionOpenAck {
+    /// Getter for accessing the `consensus_height` field from this message.
+    /// Returns `None` if this field is not set.
+    pub fn consensus_height(&self) -> Option<Height> {
+        self.proofs.consensus_proof().map(|proof| proof.height())
+    }
+}
+
+impl Msg for MsgConnectionOpenAck {
+    type ValidationError = TypesError;
+    type Raw = RawMsgConnectionOpenAck;
+
+    fn route(&self) -> String {
+        ROUTER_KEY.to_string()
+    }
+
+    fn type_url(&self) -> String {
+        OPEN_ACK_TYPE_URL.to_string()
+    }
+}
+
+impl Protobuf<RawMsgConnectionOpenAck> for MsgConnectionOpenAck {}
+
+impl TryFrom<RawMsgConnectionOpenAck> for MsgConnectionOpenAck {
+    type Error = TypesError;
+
+    fn try_from(msg: RawMsgConnectionOpenAck) -> Result<Self, Self::Error> {
+        let consensus_height = msg
+            .consensus_height
+            .and_then(|raw_height| raw_height.try_into().ok())
+            .ok_or_else(|| {
+                TypesError::connection_error(ConnectionError::missing_consensus_height())
+            })?;
+
+        let consensus_proof = ConsensusProof::new(
+            msg.proof_consensus
+                .try_into()
+                .map_err(TypesError::commitment_error)?,
+            consensus_height,
+        )
+        .map_err(TypesError::proof_error)?;
+
+        let proof_height = msg
+            .proof_height
+            .and_then(|raw_height| raw_height.try_into().ok())
+            .ok_or_else(|| TypesError::connection_error(ConnectionError::missing_proof_height()))?;
+
+        let client_proof = CommitmentProofBytes::try_from(msg.proof_client)
+            .map_err(TypesError::commitment_error)?;
+
+        // Host consensus state proof can be missing for IBC-Go < 7.2.0
+        let consensus_state_proof =
+            CommitmentProofBytes::try_from(msg.host_consensus_state_proof).ok();
+
+        Ok(Self {
+            connection_id: msg
+                .connection_id
+                .parse()
+                .map_err(TypesError::identifier_error)?,
+            counterparty_connection_id: msg
+                .counterparty_connection_id
+                .parse()
+                .map_err(TypesError::identifier_error)?,
+            client_state: msg.client_state,
+            version: msg
+                .version
+                .ok_or_else(TypesError::empty_versions)?
+                .try_into()
+                .map_err(TypesError::connection_error)?,
+            proofs: Proofs::new(
+                msg.proof_try
+                    .try_into()
+                    .map_err(TypesError::commitment_error)?,
+                Some(client_proof),
+                Some(consensus_proof),
+                consensus_state_proof,
+                None,
+                proof_height,
+            )
+            .map_err(TypesError::proof_error)?,
+            signer: msg.signer.parse().map_err(TypesError::signer)?,
+        })
+    }
+}
+
+impl From<MsgConnectionOpenAck> for RawMsgConnectionOpenAck {
+    fn from(ics_msg: MsgConnectionOpenAck) -> Self {
+        RawMsgConnectionOpenAck {
+            connection_id: ics_msg.connection_id.as_str().to_string(),
+            counterparty_connection_id: ics_msg.counterparty_connection_id.as_str().to_string(),
+            client_state: ics_msg.client_state,
+            proof_height: Some(ics_msg.proofs.height().into()),
+            proof_try: ics_msg.proofs.object_proof().clone().into(),
+            proof_client: ics_msg
+                .proofs
+                .client_proof()
+                .map_or_else(Vec::new, |v| v.to_bytes()),
+            proof_consensus: ics_msg
+                .proofs
+                .consensus_proof()
+                .map_or_else(Vec::new, |v| v.proof().to_bytes()),
+            consensus_height: ics_msg
+                .proofs
+                .consensus_proof()
+                .map_or_else(|| None, |h| Some(h.height().into())),
+            host_consensus_state_proof: ics_msg
+                .proofs
+                .host_consensus_state_proof()
+                .map_or_else(Vec::new, |v| v.to_bytes()),
+            version: Some(ics_msg.version.into()),
             signer: ics_msg.signer.to_string(),
         }
     }

@@ -7,15 +7,16 @@ use types::{
     ibc_core::{
         ics02_client::{header::AnyHeader, height::Height, update_client::MsgUpdateClient},
         ics03_connection::{
-            connection::{Counterparty, State},
+            connection::{ConnectionEnd, Counterparty, State},
             error::ConnectionError,
             events::extract_connection_id,
-            message::{MsgConnectionOpenInit, MsgConnectionOpenTry},
+            message::{MsgConnectionOpenAck, MsgConnectionOpenInit, MsgConnectionOpenTry},
         },
         ics24_host::identifier::{ClientId, ConnectionId},
     },
     ibc_events::IbcEvent,
     message::Msg,
+    timestamp::ZERO_DURATION,
 };
 
 use crate::{chain::CosmosChain, common::QueryHeight, error::Error, light_client::Verified};
@@ -134,9 +135,10 @@ impl Connection {
             .query_light_blocks(&client_state, target_height)
             .await?;
 
-        let trusted_height =
-            self.source_chain()
-                .query_trusted_height(target_height, &client_id, &client_state).await?;
+        let trusted_height = self
+            .source_chain()
+            .query_trusted_height(target_height, &client_id, &client_state)
+            .await?;
 
         let (target_header, support_headers) = self
             .target_chain()
@@ -222,9 +224,10 @@ impl Connection {
             .query_light_blocks(&client_state, target_height)
             .await?;
 
-        let trusted_height =
-            self.source_chain()
-                .query_trusted_height(target_height, &client_id, &client_state).await?;
+        let trusted_height = self
+            .source_chain()
+            .query_trusted_height(target_height, &client_id, &client_state)
+            .await?;
 
         let (target_header, support_headers) = self
             .source_chain()
@@ -266,7 +269,7 @@ impl Connection {
     }
 
     // Sends a connection open handshake message.
-    // The message sent depends on the chain status of the connection ends.
+    // The message sent depends on the chain status of the connection.
     async fn do_conn_open_handshake(&mut self) -> Result<(), Error> {
         let (a_state, b_state) = self.update_connection_state()?;
         debug!(
@@ -275,7 +278,7 @@ impl Connection {
         );
 
         match (a_state, b_state) {
-            // send the Init message to chain a (source)
+            // send the OpenInit message to chain a (source)
             (State::Uninitialized, State::Uninitialized) => {
                 let event = self
                     .flipped()
@@ -289,7 +292,7 @@ impl Connection {
                 self.side_a.connection_id = Some(connection_id.clone());
             }
 
-            // send the Try message to chain a (source)
+            // send the OpenTry message to chain a (source)
             (State::Uninitialized, State::Init) | (State::Init, State::Init) => {
                 let event = self.flipped().build_connection_open_try_and_send().await?;
 
@@ -298,7 +301,7 @@ impl Connection {
                 self.side_a.connection_id = Some(connection_id.clone());
             }
 
-            // send the Try message to chain b (destination)
+            // send the OpenTry message to chain b (target)
             (State::Init, State::Uninitialized) => {
                 let event = self.build_connection_open_try_and_send().await?;
 
@@ -307,21 +310,15 @@ impl Connection {
                 self.side_b.connection_id = Some(connection_id.clone());
             }
 
-            // // send the Ack message to chain a (source)
-            // (State::Init, State::TryOpen) | (State::TryOpen, State::TryOpen) => {
-            //     self.flipped().build_conn_ack_and_send().map_err(|e| {
-            //         error!("failed ConnOpenAck {:?}: {}", self.side_a, e);
-            //         e
-            //     })?;
-            // }
+            // send the Ack message to chain a (source)
+            (State::Init, State::TryOpen) | (State::TryOpen, State::TryOpen) => {
+                self.flipped().build_connection_open_ack_and_send().await?;
+            }
 
-            // // send the Ack message to chain b (destination)
-            // (State::TryOpen, State::Init) => {
-            //     self.build_conn_ack_and_send().map_err(|e| {
-            //         error!("failed ConnOpenAck {:?}: {}", self.side_b, e);
-            //         e
-            //     })?;
-            // }
+            // send the Ack message to chain b (target)
+            (State::TryOpen, State::Init) => {
+                self.build_connection_open_ack_and_send().await?;
+            }
 
             // // send the Confirm message to chain b (destination)
             // (State::Open, State::TryOpen) => {
@@ -549,7 +546,8 @@ impl Connection {
 
         // Wait for the height of the application on the target chain to be higher than
         // the height of the consensus state included in the proofs.
-        self.wait_for_target_chain_height_higher_than_consensus_height(src_client_target_height).await?;
+        self.wait_for_target_chain_height_higher_than_consensus_height(src_client_target_height)
+            .await?;
 
         // let tm = TrackedMsgs::new_static(dst_msgs, "ConnectionOpenTry");
 
@@ -570,6 +568,104 @@ impl Connection {
 
         match &result.event {
             IbcEvent::OpenTryConnection(_) => {
+                info!("🥂 {} => {}", self.target_chain().id(), result);
+                Ok(result.event)
+            }
+            IbcEvent::CosmosChainError(e) => Err(Error::tx_response(e.clone())),
+            _ => Err(Error::invalid_event(result.event)),
+        }
+    }
+
+    // Attempts to build a MsgConnOpenAck.
+    pub async fn build_connection_open_ack(&self) -> Result<(Vec<Any>, Height), Error> {
+        let src_connection_id = self
+            .side_a
+            .connection_id()
+            .ok_or_else(Error::empty_connection_id)?;
+        let dst_connection_id = self
+            .side_b
+            .connection_id()
+            .ok_or_else(Error::empty_connection_id)?;
+
+        let _expected_dst_connection =
+            self.validated_expected_connection(ConnectionMsgType::OpenAck).await?;
+
+        let (src_connection, _) = self.source_chain().query_connection(
+            &src_connection_id.clone(),
+            QueryHeight::Latest,
+            false,
+        )?;
+
+        // Update the client of the target chain on the source chain
+        let src_client_target_height = self.target_chain().query_latest_height().await?;
+
+        let update_client_msgs_on_source = self
+            .build_update_client_on_source_chain(src_client_target_height)
+            .await?;
+
+        self.source_chain()
+            .send_messages_and_wait_commit(update_client_msgs_on_source)?;
+
+        let query_height = self.source_chain().query_latest_height().await?;
+
+        let (client_state, proofs) = self
+            .source_chain()
+            .build_connection_proofs_and_client_state(
+                ConnectionMsgType::OpenAck,
+                &src_connection_id,
+                &self.source_chain_client_id(),
+                query_height,
+            )
+            .await?;
+
+        // Build message(s) for updating client on destination
+        let mut msgs = self
+            .build_update_client_on_target_chain(proofs.height())
+            .await?;
+
+        // Get signer
+        let signer = self.target_chain().account().get_signer()?;
+
+        let new_msg = MsgConnectionOpenAck {
+            connection_id: dst_connection_id.clone(),
+            counterparty_connection_id: src_connection_id.clone(),
+            client_state: client_state.map(Into::into),
+            proofs,
+            version: src_connection.versions()[0].clone(),
+            signer,
+        };
+
+        msgs.push(new_msg.to_any());
+
+        Ok((msgs, src_client_target_height))
+    }
+
+    pub async fn build_connection_open_ack_and_send(&self) -> Result<IbcEvent, Error> {
+        let (conn_open_ack_msgs, src_client_target_height) =
+            self.build_connection_open_ack().await?;
+
+        // Wait for the height of the target chain to be higher than
+        // the height of the consensus state included in the proofs.
+        self.wait_for_target_chain_height_higher_than_consensus_height(src_client_target_height)
+            .await?;
+
+        let events = self
+            .target_chain()
+            .send_messages_and_wait_commit(conn_open_ack_msgs)?;
+
+        // Find the relevant event for connection ack
+        let result = events
+            .into_iter()
+            .find(|event_with_height| {
+                matches!(event_with_height.event, IbcEvent::OpenAckConnection(_))
+                    || matches!(event_with_height.event, IbcEvent::CosmosChainError(_))
+            })
+            .ok_or_else(|| {
+                Error::connection_error(ConnectionError::missing_connection_ack_event())
+            })?;
+
+        match &result.event {
+            IbcEvent::OpenAckConnection(_) => {
                 info!("🥂 {} => {}", self.target_chain().id(), result);
                 Ok(result.event)
             }
@@ -605,5 +701,98 @@ impl Connection {
         }
 
         Ok(())
+    }
+
+    async fn validated_expected_connection(
+        &self,
+        msg_type: ConnectionMsgType,
+    ) -> Result<ConnectionEnd, Error> {
+        let dst_connection_id = self.side_b.connection_id().ok_or_else(|| {
+            Error::connection_error(ConnectionError::missing_connection_id(
+                self.target_chain().id(),
+            ))
+        })?;
+
+        let prefix = self.source_chain().query_commitment_prefix()?;
+
+        // If there is a connection present on the destination chain, it should look like this:
+        let counterparty = Counterparty::new(
+            self.source_chain_client_id().clone(),
+            self.side_a.connection_id(),
+            prefix,
+        );
+
+        // The highest expected state, depends on the message type:
+        let highest_state = match msg_type {
+            ConnectionMsgType::OpenAck => State::TryOpen,
+            ConnectionMsgType::OpenConfirm => State::TryOpen,
+            _ => State::Uninitialized,
+        };
+
+        let versions = self.source_chain().query_compatible_versions();
+
+        let dst_expected_connection = ConnectionEnd::new(
+            highest_state,
+            self.target_chain_client_id().clone(),
+            counterparty,
+            versions,
+            ZERO_DURATION,
+        );
+
+        // Retrieve existing connection if any
+        let (dst_connection, _) =
+            self.target_chain()
+                .query_connection(&dst_connection_id, QueryHeight::Latest, false)?;
+
+        // Check if a connection is expected to exist on destination chain
+        // A connection must exist on destination chain for Ack and Confirm Tx-es to succeed
+        if dst_connection.state_matches(&State::Uninitialized) {
+            return Err(Error::connection_error(
+                ConnectionError::missing_connection_id(self.target_chain().id()),
+            ));
+        }
+
+        check_destination_connection_state(
+            dst_connection_id.clone(),
+            dst_connection,
+            dst_expected_connection.clone(),
+        )?;
+
+        Ok(dst_expected_connection)
+    }
+}
+
+/// Verify that the destination connection exhibits the expected state.
+fn check_destination_connection_state(
+    connection_id: ConnectionId,
+    existing_connection: ConnectionEnd,
+    expected_connection: ConnectionEnd,
+) -> Result<(), Error> {
+    let good_client_ids = existing_connection.client_id() == expected_connection.client_id()
+        && existing_connection.counterparty().client_id()
+            == expected_connection.counterparty().client_id();
+
+    let good_state = *existing_connection.state() as u32 <= *expected_connection.state() as u32;
+
+    let good_connection_ids = existing_connection.counterparty().connection_id().is_none()
+        || existing_connection.counterparty().connection_id()
+            == expected_connection.counterparty().connection_id();
+
+    let good_version = existing_connection.versions() == expected_connection.versions();
+
+    let good_counterparty_prefix =
+        existing_connection.counterparty().prefix() == expected_connection.counterparty().prefix();
+
+    if good_state
+        && good_client_ids
+        && good_connection_ids
+        && good_version
+        && good_counterparty_prefix
+    {
+        Ok(())
+    } else {
+        Err(Error::connection_error(
+            ConnectionError::connection_exists_already(connection_id),
+        ))
     }
 }
