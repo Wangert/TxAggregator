@@ -95,10 +95,15 @@ pub mod query_grpc_account_tests {
     #[test]
     pub fn query_all_acount_works() {
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
-        let account = cosmos_chain
-            .query_detail_account_by_address("cosmos1ugksl34fc63kcqhqhgpzpl4je48sa97zffdfqk")
+        let rt = cosmos_chain.rt.clone();
+        let account = rt
+            .block_on(
+                cosmos_chain.query_detail_account_by_address(
+                    "cosmos1qjxsp8m9lp6q5xdzcqkvx4rmfj3qe4pyk2few7",
+                ),
+            )
             .expect("query account error!");
 
         println!("Account: {:#?}", account);

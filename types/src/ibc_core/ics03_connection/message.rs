@@ -16,6 +16,7 @@ use ibc_proto::{
     google::protobuf::Any,
     ibc::core::connection::v1::{
         MsgConnectionOpenAck as RawMsgConnectionOpenAck,
+        MsgConnectionOpenConfirm as RawMsgConnectionOpenConfirm,
         MsgConnectionOpenInit as RawMsgConnectionOpenInit,
         MsgConnectionOpenTry as RawMsgConnectionOpenTry,
     },
@@ -25,6 +26,8 @@ use ibc_proto::{
 pub const OPEN_INIT_TYPE_URL: &str = "/ibc.core.connection.v1.MsgConnectionOpenInit";
 pub const OPEN_TRY_TYPE_URL: &str = "/ibc.core.connection.v1.MsgConnectionOpenTry";
 pub const OPEN_ACK_TYPE_URL: &str = "/ibc.core.connection.v1.MsgConnectionOpenAck";
+pub const OPEN_CONFIRM_TYPE_URL: &str = "/ibc.core.connection.v1.MsgConnectionOpenConfirm";
+
 pub const ROUTER_KEY: &str = "ibc";
 ///
 /// Message definition `MsgConnectionOpenInit`  (i.e., the `ConnOpenInit` datagram).
@@ -363,6 +366,67 @@ impl From<MsgConnectionOpenAck> for RawMsgConnectionOpenAck {
                 .host_consensus_state_proof()
                 .map_or_else(Vec::new, |v| v.to_bytes()),
             version: Some(ics_msg.version.into()),
+            signer: ics_msg.signer.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MsgConnectionOpenConfirm {
+    pub connection_id: ConnectionId,
+    pub proofs: Proofs,
+    pub signer: Signer,
+}
+
+impl Msg for MsgConnectionOpenConfirm {
+    type ValidationError = TypesError;
+    type Raw = RawMsgConnectionOpenConfirm;
+
+    fn route(&self) -> String {
+        ROUTER_KEY.to_string()
+    }
+
+    fn type_url(&self) -> String {
+        OPEN_CONFIRM_TYPE_URL.to_string()
+    }
+}
+
+impl Protobuf<RawMsgConnectionOpenConfirm> for MsgConnectionOpenConfirm {}
+
+impl TryFrom<RawMsgConnectionOpenConfirm> for MsgConnectionOpenConfirm {
+    type Error = TypesError;
+
+    fn try_from(msg: RawMsgConnectionOpenConfirm) -> Result<Self, Self::Error> {
+        let proof_height = msg
+            .proof_height
+            .and_then(|raw_height| raw_height.try_into().ok())
+            .ok_or_else(|| TypesError::connection_error(ConnectionError::missing_proof_height()))?;
+
+        Ok(Self {
+            connection_id: msg
+                .connection_id
+                .parse()
+                .map_err(TypesError::identifier_error)?,
+            proofs: Proofs::new(
+                msg.proof_ack.try_into().map_err(TypesError::commitment_error)?,
+                None,
+                None,
+                None,
+                None,
+                proof_height,
+            )
+            .map_err(TypesError::proof_error)?,
+            signer: msg.signer.parse().map_err(TypesError::signer)?,
+        })
+    }
+}
+
+impl From<MsgConnectionOpenConfirm> for RawMsgConnectionOpenConfirm {
+    fn from(ics_msg: MsgConnectionOpenConfirm) -> Self {
+        RawMsgConnectionOpenConfirm {
+            connection_id: ics_msg.connection_id.as_str().to_string(),
+            proof_ack: ics_msg.proofs.object_proof().clone().into(),
+            proof_height: Some(ics_msg.proofs.height().into()),
             signer: ics_msg.signer.to_string(),
         }
     }

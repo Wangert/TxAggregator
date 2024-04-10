@@ -403,10 +403,18 @@ impl IbcEvent {
 }
 
 pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent, TypesError> {
+   
+//    println!("QQQQQQQQQQQQQQQQQQQQQ");
+//    println!("{:?}", abci_event);
+
     match abci_event.kind.parse() {
         Ok(IbcEventType::CreateClient) => {
+
+            // println!("WWWWWWWWWWWWWWWWWWWWWWWW");
             let create_attributes = extract_attributes_from_client_event(abci_event)?;
             let create_client_event = ClientEvents::CreateClient(create_attributes);
+
+            println!("Create_Client_Event: {:?}", create_client_event);
             Ok(IbcEvent::CreateClient(create_client_event))
         }
         Ok(IbcEventType::UpdateClient) => Ok(IbcEvent::UpdateClient(
@@ -501,7 +509,8 @@ pub fn upgrade_client_try_from_abci_event(
 fn extract_attributes_from_client_event(event: &AbciEvent) -> Result<ClientAttributes, TypesError> {
     let mut attr = ClientAttributes::default();
 
-    let decoded_attributes = decode_attributes(event.attributes.clone())?;
+    // let decoded_attributes = decode_attributes(event.attributes.clone())?;
+    let decoded_attributes = event.attributes.clone();
     println!("extract: {:?}", decoded_attributes);
 
     for tag in decoded_attributes {
@@ -562,7 +571,8 @@ fn extract_attributes_from_connection_event(
 ) -> Result<ConnectionAttributes, TypesError> {
     let mut attr = ConnectionAttributes::default();
 
-    let decoded_attributes = decode_attributes(event.attributes.clone())?;
+    // let decoded_attributes = decode_attributes(event.attributes.clone())?;
+    let decoded_attributes = event.attributes.clone();
     println!("extract: {:?}", decoded_attributes);
 
     for tag in decoded_attributes {

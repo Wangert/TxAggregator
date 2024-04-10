@@ -7,5 +7,9 @@
         "./cli/Cargo.toml",
         "./cosmos_chain/Cargo.toml",
         "./cosmos_chain/Cargo.toml"
-    ]
+    ],
+    "launch": {
+        "configurations": [],
+        "compounds": []
+    }
 }

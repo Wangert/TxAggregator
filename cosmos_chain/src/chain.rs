@@ -13,7 +13,10 @@ use ibc_proto::{
     },
     google::protobuf::Any,
     ibc::core::{
-        client::v1::query_client::QueryClient as IbcClientQueryClient,
+        client::v1::{
+            query_client::QueryClient as IbcClientQueryClient,
+            MsgCreateClient as IbcMsgCreateClient,
+        },
         connection::v1::query_client::QueryClient as ConnectionQueryClient,
     },
     Protobuf,
@@ -32,7 +35,10 @@ use tonic::transport::Channel;
 use tracing::{debug, info as tracing_info, info_span};
 use types::{
     ibc_core::{
-        ics02_client::{header::AnyHeader, height::Height, update_client::MsgUpdateClient},
+        ics02_client::{
+            create_client::{MsgCreateClient, CREATE_CLIENT_TYPE_URL}, header::AnyHeader, height::Height,
+            update_client::MsgUpdateClient,
+        },
         ics03_connection::{
             connection::{ConnectionEnd, State},
             version::Version,
@@ -40,23 +46,31 @@ use types::{
         ics23_commitment::{
             commitment::{CommitmentPrefix, CommitmentProofBytes},
             merkle_tree::MerkleProof,
+            specs::ProofSpecs,
         },
         ics24_host::{
-            identifier::{ChainId, ClientId, ConnectionId},
+            identifier::{chain_version, ChainId, ClientId, ConnectionId},
             path::{ClientConsensusStatePath, IBC_QUERY_PATH},
         },
     },
     ibc_events::{IbcEvent, IbcEventWithHeight},
     light_clients::ics07_tendermint::{
-        client_state::ClientState, consensus_state::ConsensusState, header::Header,
+        client_state::{AllowUpdate, ClientState},
+        consensus_state::ConsensusState,
+        header::Header,
     },
     message::Msg,
     proofs::{ConsensusProof, Proofs},
 };
+use utils::encode::protobuf;
 
 use crate::{
     account::{self, Secp256k1Account},
-    common::QueryHeight,
+    client::{
+        build_consensus_state, build_create_client_request, default_trusting_period,
+        ClientSettings, CreateClientOptions,
+    },
+    common::{parse_protobuf_duration, QueryHeight},
     config::{default::max_grpc_decoding_size, load_cosmos_chain_config, CosmosChainConfig},
     connection::ConnectionMsgType,
     error::Error,
@@ -77,9 +91,6 @@ use crate::{
 pub struct CosmosChain {
     pub id: ChainId,
     pub config: CosmosChainConfig,
-    // grpc_auth_client: Option<AuthQueryClient<Channel>>,
-    // grpc_staking_client: Option<StakingQueryClient<Channel>>,
-    // tendermint_rpc: Option<HttpClient>,
     pub account: Secp256k1Account,
     pub rt: Arc<Runtime>,
 }
@@ -92,7 +103,7 @@ impl CosmosChain {
             Err(e) => panic!("{}", e),
         };
 
-        let account = match Secp256k1Account::new(&config.chain_a_key_path, &config.hd_path) {
+        let account = match Secp256k1Account::new(&config.chain_key_path, &config.hd_path) {
             Ok(a) => a,
             Err(e) => panic!("New Secp256k1 Account Error: {}", e),
         };
@@ -100,9 +111,6 @@ impl CosmosChain {
         CosmosChain {
             id: ChainId::from_string(&config.chain_id),
             config: config,
-            // grpc_auth_client: None,
-            // grpc_staking_client: None,
-            // tendermint_rpc: None,
             account,
             rt: Arc::new(Runtime::new().expect("Cosmos chain runtime new error!")),
         }
@@ -112,8 +120,8 @@ impl CosmosChain {
         self.id.clone()
     }
 
-    pub fn account(&self) -> Secp256k1Account {
-        self.account.clone()
+    pub fn account(&self) -> &Secp256k1Account {
+        &self.account
     }
 
     pub fn query_compatible_versions(&self) -> Vec<Version> {
@@ -125,24 +133,23 @@ impl CosmosChain {
             .map_err(Error::commitment_error)
     }
 
-    pub fn send_messages_and_wait_commit(
+    pub async fn send_messages_and_wait_commit(
         &self,
         msgs: Vec<Any>,
     ) -> Result<Vec<IbcEventWithHeight>, Error> {
-        let rt = self.rt.clone();
         if msgs.is_empty() {
             return Ok(vec![]);
         }
 
-        let mut grpc_query_client = self.grpc_auth_client().clone();
+        let mut grpc_query_client = self.grpc_auth_client().await;
 
         let chain_config = self.config.clone();
         let key_account = self.account();
 
-        let account_detail = rt.block_on(query_detail_account(
+        let account_detail = query_detail_account(
             &mut grpc_query_client,
             key_account.address().as_str(),
-        ))?;
+        ).await?;
 
         let memo = Memo::new(self.config.memo_prefix.clone()).map_err(Error::memo)?;
         let msg_batches =
@@ -150,10 +157,11 @@ impl CosmosChain {
 
         let mut ibc_events_with_height = vec![];
         let mut trpc_client = self.tendermint_rpc_client();
-        let mut grpc_service_client = self.grpc_tx_sevice_client();
+        let mut grpc_service_client = self.grpc_tx_sevice_client().await;
 
+        println!("msg_batch_number: {}", msg_batches.len());
         for msg_batch in msg_batches {
-            let tx_results = rt.block_on(send_tx(
+            let tx_results = send_tx(
                 &self.config,
                 &mut trpc_client,
                 &mut grpc_query_client,
@@ -161,111 +169,193 @@ impl CosmosChain {
                 &key_account,
                 &memo,
                 &msg_batch,
-            ))?;
+            ).await?;
 
             ibc_events_with_height.extend(tx_results.events);
         }
 
         Ok(ibc_events_with_height)
     }
-    // pub fn tendermint_rpc_connect(&mut self) {
-    //     trace!("tendermint rpc connect");
-    //     tracing_info!("tendermint rpc connect access");
 
-    //     let client = match HttpClient::new(self.config.tendermint_rpc_addr.as_str()) {
-    //         Ok(client) => client,
-    //         Err(e) => panic!("tendermint rpc connect error: {:?}", e),
-    //     };
+    pub async fn build_client_state(
+        &self,
+        client_settings: &ClientSettings,
+    ) -> Result<ClientState, Error> {
+        // query latest height
+        let latest_block = self.query_latest_block().await?;
+        let latest_height = Height::new(
+            chain_version(latest_block.header.chain_id.as_str()),
+            u64::from(latest_block.header.height),
+        )
+        .map_err(|e| Error::block_height("new height failed".to_string(), e))?;
 
-    //     self.tendermint_rpc = Some(client);
+        // chain id
+        let chain_id = ChainId::from(latest_block.header.chain_id);
 
-    //     info!("tendermint rpc connect success");
-    // }
+        // Get unbonding_period in the parameter list of the staking module
+        let unbonding_period = self
+            .query_staking_params()
+            .await?
+            .unbonding_time
+            .ok_or_else(|| {
+                Error::cosmos_params("empty unbonding time in staking params".to_string())
+            })?;
+        let unbonding_period = parse_protobuf_duration(unbonding_period);
+
+        // create default trusting period
+        let trusting_period = default_trusting_period(unbonding_period);
+
+        // Deprecated, but still required by CreateClient
+        let allow_update = AllowUpdate {
+            after_expiry: true,
+            after_misbehaviour: true,
+        };
+
+        // set standards for cross-chain proof
+        let proof_specs = ProofSpecs::default();
+        // set the client upgrade path
+        let upgrade_path = vec!["upgrade".to_string(), "upgradedIBCState".to_string()];
+
+        // new a client state
+        let client_state = ClientState::new(
+            chain_id,
+            client_settings.trust_level,
+            trusting_period,
+            unbonding_period,
+            client_settings.max_clock_drift,
+            latest_height,
+            proof_specs,
+            upgrade_path,
+            allow_update,
+        )
+        .map_err(|e| Error::client_state("new client state failed".to_string(), e))?;
+
+        Ok(client_state)
+    }
+
+    pub async fn build_consensus_state(
+        &self,
+        client_state: &ClientState,
+    ) -> Result<ConsensusState, Error> {
+        let mut trpc_client = self.tendermint_rpc_client();
+        build_consensus_state(&mut trpc_client, &self.config, client_state).await
+    }
+
+    pub async fn build_create_client_msg(
+        &self,
+        client_state: ClientState,
+        consensus_state: ConsensusState,
+    ) -> Result<Vec<Any>, Error> {
+        let msg_create_client = MsgCreateClient::new(
+            client_state.into(),
+            consensus_state.into(),
+            self.account().get_signer()?,
+        );
+
+        let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
+        let protobuf_value = protobuf::encode_to_bytes(&ibc_msg_create_client)
+            .map_err(|e| Error::utils_protobuf_encode("create client msg".to_string(), e))?;
+        let msg = Any {
+            type_url: CREATE_CLIENT_TYPE_URL.to_string(),
+            value: protobuf_value,
+        };
+
+        Ok(vec![msg])
+    }
+
+    pub fn client_settings(&self, client_src_chain_config: &CosmosChainConfig) -> ClientSettings {
+        let create_client_options = CreateClientOptions {
+            max_clock_drift: Some(Duration::from_secs(self.config.max_block_time)),
+            trusting_period: Some(Duration::from_secs(self.config.trusting_period * 86400)),
+            trust_level: None,
+        };
+
+        ClientSettings::new(
+            &create_client_options,
+            client_src_chain_config,
+            &self.config,
+        )
+    }
 
     pub fn tendermint_rpc_client(&self) -> HttpClient {
         trpc::connect::tendermint_rpc_client(&self.config.tendermint_rpc_addr)
     }
 
-    pub fn grpc_auth_client(&self) -> AuthQueryClient<Channel> {
-        self.rt
-            .block_on(grpc::connect::grpc_auth_client(&self.config.grpc_addr))
+    pub async fn grpc_auth_client(&self) -> AuthQueryClient<Channel> {
+        grpc::connect::grpc_auth_client(&self.config.grpc_addr).await
     }
 
-    pub fn grpc_ibcclient_client(&self) -> IbcClientQueryClient<Channel> {
-        self.rt
-            .block_on(grpc::connect::grpc_ibcclient_client(&self.config.grpc_addr))
+    pub async fn grpc_ibcclient_client(&self) -> IbcClientQueryClient<Channel> {
+        grpc::connect::grpc_ibcclient_client(&self.config.grpc_addr).await
     }
 
-    pub fn grpc_staking_client(&self) -> StakingQueryClient<Channel> {
-        self.rt
-            .block_on(grpc::connect::grpc_staking_client(&self.config.grpc_addr))
+    pub async fn grpc_staking_client(&self) -> StakingQueryClient<Channel> {
+        grpc::connect::grpc_staking_client(&self.config.grpc_addr).await
     }
 
-    pub fn grpc_connection_client(&self) -> ConnectionQueryClient<Channel> {
-        self.rt.block_on(grpc::connect::grpc_connection_client(
+    pub async fn grpc_connection_client(&self) -> ConnectionQueryClient<Channel> {
+        grpc::connect::grpc_connection_client(
             &self.config.grpc_addr,
-        ))
+        ).await
     }
 
-    pub fn grpc_tx_sevice_client(&self) -> TxServiceClient<Channel> {
-        self.rt.block_on(grpc::connect::grpc_tx_service_client(
+    pub async fn grpc_tx_sevice_client(&self) -> TxServiceClient<Channel> {
+        grpc::connect::grpc_tx_service_client(
             &self.config.grpc_addr,
-        ))
+        ).await
     }
 
-    pub fn query_abci_info(&mut self) -> Result<Info, Error> {
+    pub async fn query_abci_info(&mut self) -> Result<Info, Error> {
         let mut trpc = self.tendermint_rpc_client();
-        self.rt.block_on(trpc::abci::abci_info(&mut trpc))
+        trpc::abci::abci_info(&mut trpc).await
     }
 
-    pub fn query_connection(
+    pub async fn query_connection(
         &self,
         connection_id: &ConnectionId,
         height_query: QueryHeight,
         prove: bool,
     ) -> Result<(ConnectionEnd, Option<MerkleProof>), Error> {
-        let mut grpc_client = self.grpc_connection_client().clone();
+        let mut grpc_client = self.grpc_connection_client().await;
         let mut trpc_client = self.tendermint_rpc_client().clone();
-        self.rt.block_on(grpc::connection::query_connection(
+        grpc::connection::query_connection(
             &mut grpc_client,
             &mut trpc_client,
             connection_id,
             height_query,
             prove,
-        ))
+        ).await
     }
 
-    pub fn query_detail_account_by_address(
+    pub async fn query_detail_account_by_address(
         &mut self,
         account_addr: &str,
     ) -> Result<BaseAccount, Error> {
-        let mut grpc_client = self.grpc_auth_client();
+        let mut grpc_client = self.grpc_auth_client().await;
         trace!("query detail account by address");
 
-        self.rt.block_on(grpc::account::query_detail_account(
+        grpc::account::query_detail_account(
             &mut grpc_client,
             account_addr,
-        ))
+        ).await
     }
 
-    pub async fn query_all_accounts(&mut self) -> Result<Vec<BaseAccount>, Error> {
+    pub async fn query_all_accounts(&self) -> Result<Vec<BaseAccount>, Error> {
         // let span = info_span!("query_all_accounts");
         // let _span = span.enter();
 
-        let mut grpc_client = self.grpc_auth_client();
+        let mut grpc_client = self.grpc_auth_client().await;
         trace!("query all accounts");
         tracing_info!("query all accounts access");
 
-        self.rt
-            .block_on(grpc::account::query_all_account(&mut grpc_client))
+        grpc::account::query_all_account(&mut grpc_client).await
     }
 
-    pub fn query_staking_params(&mut self) -> Result<StakingParams, Error> {
-        let mut grpc_client = self.grpc_staking_client();
+    pub async fn query_staking_params(&self) -> Result<StakingParams, Error> {
+        let mut grpc_client = self.grpc_staking_client().await;
         trace!("query staking params");
 
-        self.rt
-            .block_on(grpc::staking::query_staking_params(&mut grpc_client))
+        grpc::staking::query_staking_params(&mut grpc_client).await
     }
 
     pub fn query_block_header(&self, height: TendermintHeight) -> Result<TendermintHeader, Error> {
@@ -274,11 +364,11 @@ impl CosmosChain {
             .block_on(trpc::block::detail_block_header(&mut trpc, height))
     }
 
-    pub fn query_latest_block(&mut self) -> Result<Block, Error> {
+    pub async fn query_latest_block(&self) -> Result<Block, Error> {
         let mut trpc = self.tendermint_rpc_client();
         trace!("query latest block");
 
-        self.rt.block_on(trpc::block::latest_block(&mut trpc))
+        trpc::block::latest_block(&mut trpc).await
     }
 
     pub async fn query_block(&self, height: TendermintHeight) -> Result<Block, Error> {
@@ -358,7 +448,7 @@ impl CosmosChain {
         &self,
         client_id: &ClientId,
     ) -> Result<Vec<Height>, Error> {
-        let mut grpc_client = self.grpc_ibcclient_client();
+        let mut grpc_client = self.grpc_ibcclient_client().await;
         query_all_consensus_state_heights(&mut grpc_client, client_id.clone()).await
     }
 
@@ -415,7 +505,7 @@ impl CosmosChain {
         height: Height,
     ) -> Result<(Option<ClientState>, Proofs), Error> {
         let (connection_end, maybe_connection_proof) =
-            self.query_connection(connection_id, QueryHeight::Specific(height), true)?;
+            self.query_connection(connection_id, QueryHeight::Specific(height), true).await?;
 
         let Some(connection_proof) = maybe_connection_proof else {
             return Err(Error::empty_response_proof());
@@ -667,7 +757,7 @@ pub mod chain_tests {
     use std::str::FromStr;
 
     use log::info;
-    use types::ibc_core::ics24_host::identifier::ClientId;
+    use types::ibc_core::ics24_host::identifier::{ClientId, ConnectionId};
 
     use crate::common::QueryHeight;
 
@@ -675,6 +765,38 @@ pub mod chain_tests {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[test]
+    pub fn create_client_works() {
+        init();
+        let b_file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+        let a_file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+
+        let cosmos_chain_a = CosmosChain::new(a_file_path);
+        let cosmos_chain_b = CosmosChain::new(b_file_path);
+
+        let rt_a = cosmos_chain_a.rt.clone();
+        let rt_b = cosmos_chain_b.rt.clone();
+        let client_settings = cosmos_chain_a.client_settings(&cosmos_chain_b.config);
+        let client_state = rt_b
+            .block_on(cosmos_chain_b.build_client_state(&client_settings))
+            .expect("build client state error!");
+        let consensus_state = rt_b
+            .block_on(cosmos_chain_b.build_consensus_state(&client_state))
+            .expect("build consensus state error!");
+        let msgs = rt_a
+            .block_on(cosmos_chain_a.build_create_client_msg(client_state, consensus_state))
+            .expect("build create client msg error!");
+
+        let result = rt_a.block_on(cosmos_chain_a.send_messages_and_wait_commit(msgs));
+
+        match result {
+            Ok(events) => println!("Event: {:?}", events),
+            Err(e) => panic!("{}", e),
+        }
     }
 
     #[actix_rt::test]
@@ -692,8 +814,9 @@ pub mod chain_tests {
             "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
 
-        let staking_params = cosmos_chain
-            .query_staking_params()
+        let rt = cosmos_chain.rt.clone();
+        let staking_params = rt
+            .block_on(cosmos_chain.query_staking_params())
             .expect("query_staking_params error!");
 
         println!("staking params: {:?}", staking_params);
@@ -722,7 +845,7 @@ pub mod chain_tests {
         init();
         let file_path =
             "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
-        let mut cosmos_chain = CosmosChain::new(file_path);
+        let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = cosmos_chain.rt.clone();
         let target_height = rt
@@ -734,10 +857,28 @@ pub mod chain_tests {
             .block_on(cosmos_chain.build_update_client_own(&client_id, target_height))
             .expect("build update client error!");
 
-        let update_client_result = cosmos_chain.send_messages_and_wait_commit(update_client_msgs);
+        let update_client_result = rt.block_on(cosmos_chain.send_messages_and_wait_commit(update_client_msgs));
 
         match update_client_result {
             Ok(event) => println!("Event: {:?}", event),
+            Err(e) => panic!("{}", e),
+        }
+    }
+
+    #[test]
+    pub fn query_connection_works() {
+        init();
+        let file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
+
+        let rt = cosmos_chain.rt.clone();
+        let client_id = ConnectionId::from_str("connection-1").expect("connection id error!");
+        let client_state_result =
+            rt.block_on(cosmos_chain.query_connection(&client_id, QueryHeight::Latest, true));
+
+        match client_state_result {
+            Ok((client_state, _)) => println!("client_state: {:?}", client_state),
             Err(e) => panic!("{}", e),
         }
     }

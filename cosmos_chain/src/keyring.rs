@@ -220,7 +220,7 @@ pub mod keyring_test {
         let cosmos_chain = CosmosChain::new(file_path);
 
         let account = Secp256k1Account::new(
-            &cosmos_chain.config.chain_a_key_path,
+            &cosmos_chain.config.chain_key_path,
             &cosmos_chain.config.hd_path,
         )
         .expect("account error!");

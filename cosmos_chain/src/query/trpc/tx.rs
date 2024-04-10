@@ -36,7 +36,7 @@ pub mod tx_tests {
 
     #[test]
     pub fn tx_works() {
-        let tx_hash = Hash::from_hex_upper(Algorithm::Sha256, "C4454952D3F3CD17712264E4A6594882D7738627E67345AD4F3417BC8D5A4913").expect("hash error");
+        let tx_hash = Hash::from_hex_upper(Algorithm::Sha256, "3262D1307F7F99FA15DAC467835EAAF33081E6A6B432E7475E1D8478E5703CFE").expect("hash error");
 
         let mut trpc = tendermint_rpc_client("http://0.0.0.0:26657");
 

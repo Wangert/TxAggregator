@@ -1,0 +1,5 @@
+name = "wjt"
+type = "local"
+address = "cosmos1rq4hvtm2q7tl58azg7ugqequcrdwsg25l9vluv"
+pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"A+vp/7RQ8+YP+WP4UwnXZH9aCtKiIBMSgpCRaGAgKLw6\"}"
+mnemonic = "quiz gate victory fruit attract culture member clog pencil develop elder evil myth ahead wide tail notice dolphin despair abuse slim vault chimney order"

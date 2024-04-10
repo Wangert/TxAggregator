@@ -2,6 +2,10 @@ use ibc_proto::{google::protobuf::Any, Protobuf};
 use ibc_proto::ibc::core::client::v1::MsgCreateClient as RawMsgCreateClient;
 use crate::{signer::Signer, error::TypesError};
 
+use super::events::CreateClient;
+
+pub const CREATE_CLIENT_TYPE_URL: &str = "/ibc.core.client.v1.MsgCreateClient";
+
 #[derive(Debug, Clone)]
 pub struct MsgCreateClient {
     pub client_state: Any,

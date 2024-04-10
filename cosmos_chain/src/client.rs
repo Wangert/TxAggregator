@@ -112,12 +112,11 @@ pub async fn build_create_client_request(
         trpc_client,
         src_chain_config,
         &client_state,
-        client_state.latest_height,
     ).await?;
 
     // signer
     let account = Secp256k1Account::new(
-        &src_chain_config.chain_a_key_path,
+        &src_chain_config.chain_key_path,
         &src_chain_config.hd_path,
     )?;
     let signer: Signer = account
@@ -132,7 +131,7 @@ pub async fn build_create_client_request(
     ))
 }
 
-async fn build_client_state(
+pub async fn build_client_state(
     trpc_client: &mut HttpClient,
     grpc_staking_client: &mut StakingQueryClient<Channel>,
     create_client_options: &CreateClientOptions,
@@ -196,11 +195,10 @@ async fn build_client_state(
     Ok(client_state)
 }
 
-async fn build_consensus_state(
+pub async fn build_consensus_state(
     trpc: &mut HttpClient,
     chain_config: &CosmosChainConfig,
     client_state: &ClientState,
-    height: Height,
 ) -> Result<ConsensusState, Error> {
     let status = trpc::consensus::tendermint_status(trpc).await?;
 
@@ -209,7 +207,7 @@ async fn build_consensus_state(
         trpc,
         chain_config,
         client_state,
-        height,
+        client_state.latest_height,
         &status.node_info.id,
         status.sync_info.latest_block_time,
     )?;
@@ -271,7 +269,7 @@ impl ClientSettings {
 /// The client state clock drift must account for destination
 /// chain block frequency and clock drift on source and dest.
 /// https://github.com/informalsystems/hermes/issues/1445
-fn calculate_client_state_drift(
+pub fn calculate_client_state_drift(
     src_chain_config: &CosmosChainConfig,
     dst_chain_config: &CosmosChainConfig,
 ) -> Duration {
@@ -285,6 +283,6 @@ fn calculate_client_state_drift(
 /// Fetches the trusting period as a `Duration` from the chain config.
 /// If no trusting period exists in the config, the trusting period is calculated
 /// as two-thirds of the `unbonding_period`.
-fn default_trusting_period(unbonding_period: Duration) -> Duration {
+pub fn default_trusting_period(unbonding_period: Duration) -> Duration {
     2 * unbonding_period / 3
 }

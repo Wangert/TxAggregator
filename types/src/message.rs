@@ -1,5 +1,5 @@
 use ibc_proto::google::protobuf::Any;
-use prost::Message;
+use prost::{EncodeError, Message};
 use utils::encode::protobuf::encode_to_bytes;
 
 use crate::error::TypesError;
@@ -25,7 +25,7 @@ pub trait Msg: Clone {
 
     fn get_sign_bytes(self) -> Vec<u8> {
         let raw_msg: Self::Raw = self.into();
-        encode_to_bytes(&raw_msg).unwrap_or_else(|e| {
+        encode_message(&raw_msg).unwrap_or_else(|e| {
             // Severe error that cannot be recovered.
             panic!(
                 "Cannot encode the proto message {:?} into a buffer due to underlying error: {}",
@@ -37,4 +37,10 @@ pub trait Msg: Clone {
     fn validate_basic(&self) -> Result<(), TypesError> {
         Ok(())
     }
+}
+
+pub fn encode_message<M: Message>(message: &M) -> Result<Vec<u8>, EncodeError> {
+    let mut buf = Vec::new();
+    Message::encode(message, &mut buf)?;
+    Ok(buf)
 }
