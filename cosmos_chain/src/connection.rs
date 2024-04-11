@@ -282,64 +282,91 @@ impl Connection {
 
     // Sends a connection open handshake message.
     // The message sent depends on the chain status of the connection.
-    async fn connection_handshake(&mut self) -> Result<(), Error> {
+    async fn connection_handshake(&mut self) -> Result<Option<IbcEvent>, Error> {
+        info!("【connection handshake】");
         let (a_state, b_state) = self.update_connection_state().await?;
         debug!(
             "connection_handshake with connection end states: {}, {}",
             a_state, b_state
         );
 
+        let mut ibc_event: Option<IbcEvent> = None;
+
+        println!("a_state({}) - b_state({})", a_state, b_state);
+        info!("a_state({}) - b_state({})", a_state, b_state);
         match (a_state, b_state) {
             // send the OpenInit message to chain a (source)
             (State::Uninitialized, State::Uninitialized) => {
+                info!("send a OpenInit message");
                 let event = self.flipped().build_connection_open_init_and_send().await?;
                 let connection_id =
                     extract_connection_id(&event).map_err(Error::connection_error)?;
                 self.side_a.connection_id = Some(connection_id.clone());
+
+                ibc_event = Some(event)
             }
 
             // send the OpenTry message to chain a (source)
             (State::Uninitialized, State::Init) | (State::Init, State::Init) => {
+                info!("send a OpenTry message");
                 let event = self.flipped().build_connection_open_try_and_send().await?;
 
                 let connection_id =
                     extract_connection_id(&event).map_err(Error::connection_error)?;
                 self.side_a.connection_id = Some(connection_id.clone());
+
+                ibc_event = Some(event)
             }
 
             // send the OpenTry message to chain b (target)
             (State::Init, State::Uninitialized) => {
+                info!("send a OpenInit message");
                 let event = self.build_connection_open_try_and_send().await?;
 
                 let connection_id =
                     extract_connection_id(&event).map_err(Error::connection_error)?;
                 self.side_b.connection_id = Some(connection_id.clone());
+
+                ibc_event = Some(event)
             }
 
             // send the Ack message to chain a (source)
             (State::Init, State::TryOpen) | (State::TryOpen, State::TryOpen) => {
-                self.flipped().build_connection_open_ack_and_send().await?;
+                info!("send a OpenAck message");
+                let event = self.flipped().build_connection_open_ack_and_send().await?;
+
+                ibc_event = Some(event)
             }
 
             // send the Ack message to chain b (target)
             (State::TryOpen, State::Init) => {
-                self.build_connection_open_ack_and_send().await?;
+                info!("send a OpenAck message");
+                let event = self.build_connection_open_ack_and_send().await?;
+
+                ibc_event = Some(event)
             }
 
             // send the Confirm message to chain b (target)
             (State::Open, State::TryOpen) => {
-                self.build_connection_open_confirm_and_send().await?;
+                info!("send a OpenConfirm message");
+                let event = self.build_connection_open_confirm_and_send().await?;
+
+                ibc_event = Some(event)
             }
 
             // send the Confirm message to chain a (source)
             (State::TryOpen, State::Open) => {
-                self.flipped()
+                info!("send a OpenConfirm message");
+                let event = self
+                    .flipped()
                     .build_connection_open_confirm_and_send()
                     .await?;
+
+                ibc_event = Some(event)
             }
             (State::Open, State::Open) => {
                 info!("connection handshake already finished for {:?}", self);
-                return Ok(());
+                return Err(Error::connection_completed());
             }
 
             (a_state, b_state) => {
@@ -351,22 +378,30 @@ impl Connection {
                     self.side_b.chain.id(),
                     b_state
                 );
+                return Err(Error::connection_state_error());
             }
         }
-        Err(Error::handshake_continue())
+
+        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+        println!("Connection Handshake Event: {:?}", ibc_event);
+        // Err(Error::handshake_continue())
+        Ok(ibc_event)
     }
 
     pub async fn update_connection_state(&mut self) -> Result<(State, State), Error> {
         let old_con_a_id = self.source_chain_connection_id();
         let old_con_b_id = self.target_chain_connection_id();
 
-        let (a_connection, _) = self.source_chain().query_connection(
-            old_con_a_id
-                .as_ref()
-                .ok_or_else(Error::empty_connection_id)?,
-            QueryHeight::Latest,
-            false,
-        ).await?;
+        let a_connection = if let Some(conn_id) = old_con_a_id.as_ref() {
+            let (a_connection, _) = self
+                .source_chain()
+                .query_connection(conn_id, QueryHeight::Latest, true)
+                .await?;
+            a_connection
+        } else {
+            ConnectionEnd::default()
+        };
+
         let a_counterparty_id = a_connection.counterparty().connection_id();
 
         if a_counterparty_id.is_some() && a_counterparty_id != old_con_b_id.as_ref() {
@@ -374,13 +409,17 @@ impl Connection {
         }
 
         let updated_con_b_id = self.target_chain_connection_id();
-        let (b_connection, _) = self.target_chain().query_connection(
-            old_con_b_id
-                .as_ref()
-                .ok_or_else(Error::empty_connection_id)?,
-            crate::common::QueryHeight::Latest,
-            false,
-        ).await?;
+
+        let b_connection = if let Some(conn_id) = updated_con_b_id.as_ref() {
+            let (b_connection, _) = self
+                .target_chain()
+                .query_connection(conn_id, QueryHeight::Latest, true)
+                .await?;
+            b_connection
+        } else {
+            ConnectionEnd::default()
+        };
+
         let b_counterparty_id = b_connection.counterparty().connection_id();
 
         if b_counterparty_id.is_some() && b_counterparty_id != old_con_a_id.as_ref() {
@@ -424,12 +463,15 @@ impl Connection {
     }
 
     pub async fn build_connection_open_init_and_send(&self) -> Result<IbcEvent, Error> {
-        info!("build_connection_open_init_and_send"); 
+        info!("build_connection_open_init_and_send");
         let msgs = self.build_connection_open_init()?;
 
         println!("msgs: {:?}", msgs);
         // let tm = TrackedMsgs::new_static(dst_msgs, "ConnectionOpenInit");
-        let events = self.target_chain().send_messages_and_wait_commit(msgs).await?;
+        let events = self
+            .target_chain()
+            .send_messages_and_wait_commit(msgs)
+            .await?;
 
         println!("ibc events: {:?}", events);
         // Find the relevant event for connection init
@@ -463,9 +505,10 @@ impl Connection {
             .connection_id()
             .ok_or_else(Error::empty_connection_id)?;
 
-        let (src_connection, _) =
-            self.source_chain()
-                .query_connection(&src_connection_id, QueryHeight::Latest, false).await?;
+        let (src_connection, _) = self
+            .source_chain()
+            .query_connection(&src_connection_id, QueryHeight::Latest, false)
+            .await?;
 
         // Cross-check the delay_period
         let delay = if src_connection.delay_period() != self.delay_period {
@@ -491,7 +534,8 @@ impl Connection {
         // let tm =
         //     TrackedMsgs::new_static(client_msgs, "update client on source for ConnectionOpenTry");
         self.source_chain()
-            .send_messages_and_wait_commit(update_client_msgs).await?;
+            .send_messages_and_wait_commit(update_client_msgs)
+            .await?;
 
         let query_height = self.source_chain().query_latest_height().await?;
         let (client_state, proofs) = self
@@ -535,7 +579,7 @@ impl Connection {
         let new_msg = MsgConnectionOpenTry {
             client_id: self.side_b.client_id(),
             client_state: client_state.map(Into::into),
-            previous_connection_id,
+            previous_connection_id: None,
             counterparty,
             counterparty_versions,
             proofs,
@@ -561,7 +605,8 @@ impl Connection {
 
         let events = self
             .target_chain()
-            .send_messages_and_wait_commit(con_open_try_msgs).await?;
+            .send_messages_and_wait_commit(con_open_try_msgs)
+            .await?;
 
         // Find the relevant event for connection try transaction
         let result = events
@@ -599,11 +644,10 @@ impl Connection {
             .validated_expected_connection(ConnectionMsgType::OpenAck)
             .await?;
 
-        let (src_connection, _) = self.source_chain().query_connection(
-            &src_connection_id.clone(),
-            QueryHeight::Latest,
-            false,
-        ).await?;
+        let (src_connection, _) = self
+            .source_chain()
+            .query_connection(&src_connection_id.clone(), QueryHeight::Latest, false)
+            .await?;
 
         // Update the client of the target chain on the source chain
         let src_client_target_height = self.target_chain().query_latest_height().await?;
@@ -613,7 +657,8 @@ impl Connection {
             .await?;
 
         self.source_chain()
-            .send_messages_and_wait_commit(update_client_msgs_on_source).await?;
+            .send_messages_and_wait_commit(update_client_msgs_on_source)
+            .await?;
 
         let query_height = self.source_chain().query_latest_height().await?;
 
@@ -660,7 +705,8 @@ impl Connection {
 
         let events = self
             .target_chain()
-            .send_messages_and_wait_commit(conn_open_ack_msgs).await?;
+            .send_messages_and_wait_commit(conn_open_ack_msgs)
+            .await?;
 
         // Find the relevant event for connection ack
         let result = events
@@ -700,11 +746,14 @@ impl Connection {
 
         let query_height = self.source_chain().query_latest_height().await?;
 
-        let (_src_connection, _) = self.source_chain().query_connection(
-            &src_connection_id,
-            QueryHeight::Specific(query_height),
-            false,
-        ).await?;
+        let (_src_connection, _) = self
+            .source_chain()
+            .query_connection(
+                &src_connection_id,
+                QueryHeight::Specific(query_height),
+                false,
+            )
+            .await?;
 
         let (_, proofs) = self
             .source_chain()
@@ -739,7 +788,8 @@ impl Connection {
 
         let events = self
             .target_chain()
-            .send_messages_and_wait_commit(conn_open_confirm_msgs).await?;
+            .send_messages_and_wait_commit(conn_open_confirm_msgs)
+            .await?;
 
         // Find the relevant event for connection confirm
         let result = events
@@ -828,9 +878,10 @@ impl Connection {
         );
 
         // Retrieve existing connection if any
-        let (dst_connection, _) =
-            self.target_chain()
-                .query_connection(&dst_connection_id, QueryHeight::Latest, false).await?;
+        let (dst_connection, _) = self
+            .target_chain()
+            .query_connection(&dst_connection_id, QueryHeight::Latest, false)
+            .await?;
 
         // Check if a connection is expected to exist on destination chain
         // A connection must exist on destination chain for Ack and Confirm Tx-es to succeed
@@ -890,9 +941,9 @@ pub mod connection_tests {
     use std::{str::FromStr, time::Duration};
 
     use log::info;
-    use types::ibc_core::ics24_host::identifier::ClientId;
+    use types::ibc_core::ics24_host::identifier::{ClientId, ConnectionId};
 
-    use crate::common::QueryHeight;
+    use crate::{common::QueryHeight, error::Error};
 
     use super::{Connection, ConnectionSide, CosmosChain};
 
@@ -912,8 +963,14 @@ pub mod connection_tests {
         let cosmos_chain_b = CosmosChain::new(b_file_path);
 
         let connection = Connection::new(
-            ConnectionSide::new(cosmos_chain_a, ClientId::from_str("07-tendermint-6").unwrap()),
-            ConnectionSide::new(cosmos_chain_b, ClientId::from_str("07-tendermint-1").unwrap()),
+            ConnectionSide::new(
+                cosmos_chain_a,
+                ClientId::from_str("07-tendermint-6").unwrap(),
+            ),
+            ConnectionSide::new(
+                cosmos_chain_b,
+                ClientId::from_str("07-tendermint-1").unwrap(),
+            ),
             Duration::from_secs(100),
         );
 
@@ -922,6 +979,46 @@ pub mod connection_tests {
         match result {
             Ok(events) => println!("Event: {:?}", events),
             Err(e) => panic!("{}", e),
+        }
+    }
+
+    #[test]
+    pub fn connection_handshake_works() {
+        init();
+        let a_file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+        let b_file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+
+        let cosmos_chain_a = CosmosChain::new(a_file_path);
+        let cosmos_chain_b = CosmosChain::new(b_file_path);
+
+        let mut connection_side_a = ConnectionSide::new(
+            cosmos_chain_a,
+            ClientId::from_str("07-tendermint-7").unwrap(),
+        );
+        let mut connection_side_b = ConnectionSide::new(
+            cosmos_chain_b,
+            ClientId::from_str("07-tendermint-2").unwrap(), 
+        );
+
+        connection_side_a.connection_id = Some(ConnectionId::from_str("connection-3").unwrap());
+        connection_side_b.connection_id = Some(ConnectionId::from_str("connection-1").unwrap());
+        // connection_side_a.connection_id = None;
+        // connection_side_b.connection_id = None;
+        let mut connection = Connection::new(
+            connection_side_a,
+            connection_side_b,
+            Duration::from_secs(100),
+        );
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(connection.connection_handshake());
+
+        println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
+        match result {
+            Ok(events) => println!("Event: {:?}", events),
+            Err(e) => println!("{:?}", e),
         }
     }
 }

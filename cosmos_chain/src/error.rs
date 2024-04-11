@@ -189,6 +189,10 @@ define_error! {
             |_| { "empty connection id" },
         HandshakeContinue
             |_| { "continue handshake" },
+        ConnectionCompleted
+            |_| { "connection completed" }, 
+        ConnectionStateError
+            |_| { "connectuon state error" },
         BadConnectionState
             |_| { "bad connection state" },
         

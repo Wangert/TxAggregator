@@ -770,9 +770,9 @@ pub mod chain_tests {
     #[test]
     pub fn create_client_works() {
         init();
-        let b_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let a_file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+        let b_file_path =
             "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
@@ -826,11 +826,11 @@ pub mod chain_tests {
     pub fn query_client_state_works() {
         init();
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = cosmos_chain.rt.clone();
-        let client_id = ClientId::from_str("07-tendermint-6").expect("client id error!");
+        let client_id = ClientId::from_str("07-tendermint-7").expect("client id error!");
         let client_state_result =
             rt.block_on(cosmos_chain.query_client_state(&client_id, QueryHeight::Latest, true));
 
@@ -869,16 +869,16 @@ pub mod chain_tests {
     pub fn query_connection_works() {
         init();
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = cosmos_chain.rt.clone();
-        let client_id = ConnectionId::from_str("connection-1").expect("connection id error!");
-        let client_state_result =
-            rt.block_on(cosmos_chain.query_connection(&client_id, QueryHeight::Latest, true));
+        let connnectuon_id = ConnectionId::from_str("connection-1").expect("connection id error!");
+        let connection_result =
+            rt.block_on(cosmos_chain.query_connection(&connnectuon_id, QueryHeight::Latest, true));
 
-        match client_state_result {
-            Ok((client_state, _)) => println!("client_state: {:?}", client_state),
+        match connection_result {
+            Ok((connnection, _)) => println!("connection: {:?}", connnection),
             Err(e) => panic!("{}", e),
         }
     }
