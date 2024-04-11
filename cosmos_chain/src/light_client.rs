@@ -127,7 +127,7 @@ pub mod light_client_tests {
     #[test]
     pub fn fetch_light_block_works() {
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client = trpc::connect::tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
@@ -152,7 +152,7 @@ pub mod light_client_tests {
     #[actix_rt::test]
     pub async fn asy_fecth_light_block_works() {
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client = trpc::connect::tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);

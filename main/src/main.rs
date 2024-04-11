@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).init();
     
     // let span = info_span!("main");
-    let file_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+    let file_path = "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
     let mut cosmos_chain = CosmosChain::new(file_path);
 
     let account = Secp256k1Account::new(&cosmos_chain.config.chain_a_key_path, &cosmos_chain.config.hd_path)?;

@@ -81,7 +81,7 @@ pub mod account_tests {
 
     #[test]
     pub fn account_new_works() {
-        let file_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let file_path = "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let account = Secp256k1Account::new(&cosmos_chain.config.chain_a_key_path, &cosmos_chain.config.hd_path);

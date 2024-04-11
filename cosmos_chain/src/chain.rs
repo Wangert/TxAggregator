@@ -173,7 +173,7 @@ pub mod chain_tests {
     pub async fn grpc_connect_works() {
         init();
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
     }
 
@@ -181,7 +181,7 @@ pub mod chain_tests {
     pub async fn query_staking_params_works() {
         init();
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
 
         let staking_params = cosmos_chain

@@ -67,7 +67,11 @@ pub mod trpc_block_tests {
     pub async fn trpc_block_results_works() {
         init();
         let file_path =
+<<<<<<< Updated upstream
             "C:/Users/admin/Documents/GitHub//TxAggregator/cosmos_chain/src/config/chain_config.toml";
+=======
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+>>>>>>> Stashed changes
         let mut cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client = cosmos_chain

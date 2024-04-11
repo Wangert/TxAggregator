@@ -172,7 +172,7 @@ pub mod keyring_test {
 
     #[test]
     pub fn cosmos_key_read_works() {
-        let key_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/key_a.toml";
+        let key_path = "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/key_a.toml";
         let cosmos_key: CosmosKey = toml_file::toml_file_read(key_path)
             .map_err(|e| Error::read_cosmos_key(e))
             .expect("toml file error!");
@@ -188,7 +188,7 @@ pub mod keyring_test {
 
     #[test]
     pub fn address_bytes_works() {
-        let key_path = "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/key_a.toml";
+        let key_path = "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/key_a.toml";
         let cosmos_key: CosmosKey = toml_file::toml_file_read(key_path)
             .map_err(|e| Error::read_cosmos_key(e))
             .expect("toml file error!");
@@ -215,7 +215,7 @@ pub mod keyring_test {
     #[test]
     pub fn sign_and_verify_works() {
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let account = Secp256k1Account::new(
