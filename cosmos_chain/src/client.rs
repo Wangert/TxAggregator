@@ -1,6 +1,9 @@
-use std::time::Duration;
+use std::{thread, time::Duration};
 
-use ibc_proto::cosmos::staking::v1beta1::query_client::QueryClient as StakingQueryClient;
+use ibc_proto::{
+    cosmos::staking::v1beta1::query_client::QueryClient as StakingQueryClient,
+    ibc::core::client::v1::query_client::QueryClient as IbcClientQueryClient,
+};
 use log::info;
 use tendermint::{block::Header, node::Id as TendermintNodeId};
 use tendermint_rpc::HttpClient;
@@ -8,14 +11,15 @@ use tonic::transport::Channel;
 use tracing::warn;
 use types::{
     ibc_core::{
-        ics02_client::create_client::MsgCreateClient,
+        ics02_client::{
+            create_client::MsgCreateClient, height::Height, update_client::MsgUpdateClient,
+        },
         ics23_commitment::specs::ProofSpecs,
-        ics24_host::identifier::{chain_version, ChainId},
+        ics24_host::identifier::{chain_version, ChainId, ClientId},
     },
     light_clients::ics07_tendermint::{
         client_state::{AllowUpdate, ClientState},
         consensus_state::ConsensusState,
-        height::Height,
         trust_level::TrustLevel,
     },
     signer::Signer,
@@ -24,14 +28,68 @@ use types::{
 use crate::{
     account::Secp256k1Account,
     chain::CosmosChain,
-    common::parse_protobuf_duration,
+    common::{parse_protobuf_duration, query_latest_height, query_trusted_height, QueryHeight},
     config::{CosmosChainConfig, TrustThreshold},
     error::Error,
     light_client::verify_block_header_and_fetch_light_block,
     query::{grpc, trpc},
+    validate::validate_client_state,
 };
 
-pub fn build_create_client_request(
+pub async fn build_update_client_request(
+    src_trpc_client: &mut HttpClient,
+    dst_trpc_client: &mut HttpClient,
+    dst_grpc_client: &mut IbcClientQueryClient<Channel>,
+    client_id: ClientId,
+    target_query_height: QueryHeight,
+    src_chain_config: &CosmosChainConfig,
+    dst_chain_config: &CosmosChainConfig,
+) -> Result<MsgUpdateClient, Error> {
+    // query target height
+    let target_height = match target_query_height {
+        QueryHeight::Latest => query_latest_height(src_trpc_client).await?,
+        QueryHeight::Specific(height) => height,
+    };
+
+    // Wait for the source network to produce block(s) & reach `target_height`.
+    while query_latest_height(src_trpc_client).await? < target_height {
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    let rt = tokio::runtime::Runtime::new().expect("runtime new error!");
+    // query and verify the latest client_state of src_chain on the dst_chain
+    let (client_state, _) = rt.block_on(trpc::abci::abci_query_client_state(
+        dst_trpc_client,
+        client_id.clone(),
+        QueryHeight::Latest,
+        true,
+    ))?;
+
+    let client_state_validate =
+        validate_client_state(src_trpc_client, client_id.clone(), &client_state).await;
+
+    if let Some(e) = client_state_validate {
+        return Err(e);
+    }
+
+    let trusted_height =
+        query_trusted_height(dst_grpc_client, client_id, &client_state, target_height).await?;
+
+    // if trusted_height >= target_height {
+    //     warn!(
+    //         "skipping update: trusted height ({}) >= chain target height ({})",
+    //         trusted_height, target_height
+    //     );
+
+    //     return Ok();
+    // }
+
+    todo!()
+}
+
+// pub fn build_header()
+
+pub async fn build_create_client_request(
     trpc_client: &mut HttpClient,
     grpc_staking_client: &mut StakingQueryClient<Channel>,
     create_client_options: &CreateClientOptions,
@@ -45,7 +103,7 @@ pub fn build_create_client_request(
         create_client_options,
         src_chain_config,
         dst_chain_config,
-    )?;
+    ).await?;
 
     println!("access build consensus state");
 
@@ -54,12 +112,11 @@ pub fn build_create_client_request(
         trpc_client,
         src_chain_config,
         &client_state,
-        client_state.latest_height,
-    )?;
+    ).await?;
 
     // signer
     let account = Secp256k1Account::new(
-        &src_chain_config.chain_a_key_path,
+        &src_chain_config.chain_key_path,
         &src_chain_config.hd_path,
     )?;
     let signer: Signer = account
@@ -74,7 +131,7 @@ pub fn build_create_client_request(
     ))
 }
 
-fn build_client_state(
+pub async fn build_client_state(
     trpc_client: &mut HttpClient,
     grpc_staking_client: &mut StakingQueryClient<Channel>,
     create_client_options: &CreateClientOptions,
@@ -82,7 +139,7 @@ fn build_client_state(
     dst_chain_config: &CosmosChainConfig,
 ) -> Result<ClientState, Error> {
     // query latest height
-    let latest_block = trpc::block::latest_block(trpc_client)?;
+    let latest_block = trpc::block::latest_block(trpc_client).await?;
     // let abci_info = trpc::abci::abci_info(trpc_client).await?;
     // let last_block_header_info =
     //     trpc::block::detail_block_header(trpc_client, abci_info.last_block_height).await?;
@@ -100,7 +157,7 @@ fn build_client_state(
         ClientSettings::new(create_client_options, src_chain_config, dst_chain_config);
 
     // Get unbonding_period in the parameter list of the staking module
-    let unbonding_period = grpc::staking::query_staking_params(grpc_staking_client)?
+    let unbonding_period = grpc::staking::query_staking_params(grpc_staking_client).await?
         .unbonding_time
         .ok_or_else(|| {
             Error::cosmos_params("empty unbonding time in staking params".to_string())
@@ -138,25 +195,24 @@ fn build_client_state(
     Ok(client_state)
 }
 
-fn build_consensus_state(
+pub async fn build_consensus_state(
     trpc: &mut HttpClient,
     chain_config: &CosmosChainConfig,
     client_state: &ClientState,
-    height: Height,
 ) -> Result<ConsensusState, Error> {
-    let status = trpc::consensus::tendermint_status(trpc)?;
+    let status = trpc::consensus::tendermint_status(trpc).await?;
 
     println!("status.node_info.id: {:?}", status.node_info.id);
     let verified_block = verify_block_header_and_fetch_light_block(
         trpc,
         chain_config,
         client_state,
-        height,
+        client_state.latest_height,
         &status.node_info.id,
         status.sync_info.latest_block_time,
     )?;
 
-    Ok(ConsensusState::from(verified_block.signed_header.header))
+    Ok(ConsensusState::from(verified_block.target.signed_header.header))
 }
 
 #[derive(Debug, Default)]
@@ -213,7 +269,7 @@ impl ClientSettings {
 /// The client state clock drift must account for destination
 /// chain block frequency and clock drift on source and dest.
 /// https://github.com/informalsystems/hermes/issues/1445
-fn calculate_client_state_drift(
+pub fn calculate_client_state_drift(
     src_chain_config: &CosmosChainConfig,
     dst_chain_config: &CosmosChainConfig,
 ) -> Duration {
@@ -227,6 +283,6 @@ fn calculate_client_state_drift(
 /// Fetches the trusting period as a `Duration` from the chain config.
 /// If no trusting period exists in the config, the trusting period is calculated
 /// as two-thirds of the `unbonding_period`.
-fn default_trusting_period(unbonding_period: Duration) -> Duration {
+pub fn default_trusting_period(unbonding_period: Duration) -> Duration {
     2 * unbonding_period / 3
 }

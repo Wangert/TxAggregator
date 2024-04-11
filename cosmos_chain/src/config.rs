@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use tendermint::block::Height as TmBlockHeight;
 use utils::file::toml_file;
 
 use crate::{error::Error, tx::types::GasPrice};
@@ -11,8 +12,8 @@ pub struct CosmosChainConfig {
     pub blockchain_api_addr: String,
     pub rpc_timeout: u64,
 
-    pub chain_a_key_path: String,
-    pub chain_b_key_path: String,
+    pub chain_key_path: String,
+    // pub chain_b_key_path: String,
     pub hd_path: String,
     pub trusted_node: bool,
 
@@ -29,6 +30,10 @@ pub struct CosmosChainConfig {
     pub trust_threshold: TrustThreshold,
 
     pub memo_prefix: String,
+    pub store_prefix: String,
+
+    pub max_msg_num: u64,
+    pub max_tx_size: u64,
 
 }
 

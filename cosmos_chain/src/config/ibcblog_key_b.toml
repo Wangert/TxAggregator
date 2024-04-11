@@ -1,0 +1,5 @@
+name = "wjt"
+type = "local"
+address = "cosmos1gn6f8n4wlnn4dcwq0c9pzy8sewu9jj6tzfs58c"
+pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"A7pz4Nz2WKRdy9z9Jr+GSsLPfTLkttReD8pbaYILUPy9\"}"
+mnemonic = "spy lemon response cereal air immense decorate noble abstract agent milk kick actual when social endorse prison order guilt loan cheese punch popular receive"

@@ -1,25 +1,24 @@
 use std::{cmp::Ordering, str::FromStr};
 
-use ibc_proto::protobuf::Protobuf;
-use ibc_proto::ibc::core::client::v1::Height as IbcHeight;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+
+use ibc_proto::{ibc::core::client::v1::Height as RawHeight, Protobuf};
 
 use crate::{error::TypesError, ibc_core::ics24_host::identifier::ChainId};
 
-/// Is equal to "ibc_proto::ibc::core::client::v1::Height"
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Height {
-    /// the revision that the client is currently on
+    /// Previously known as "epoch"
     revision_number: u64,
 
-    /// The height of a block within the given revision
+    /// The height of a block
     revision_height: u64,
 }
 
 impl Height {
     pub fn new(revision_number: u64, revision_height: u64) -> Result<Self, TypesError> {
         if revision_height == 0 {
-            return Err(TypesError::invalid_height());
+            return Err(TypesError::invalid_height(revision_height.to_string()));
         }
 
         Ok(Self {
@@ -46,9 +45,20 @@ impl Height {
     pub fn increment(self) -> Height {
         self + 1
     }
+}
 
-    pub fn decrement(self) -> Result<Height, TypesError> {
-        self - 1
+impl core::fmt::Debug for Height {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        f.debug_struct("Height")
+            .field("revision", &self.revision_number)
+            .field("height", &self.revision_height)
+            .finish()
+    }
+}
+
+impl core::fmt::Display for Height {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        write!(f, "{}-{}", self.revision_number, self.revision_height)
     }
 }
 
@@ -100,19 +110,19 @@ impl core::ops::Sub<u64> for Height {
     }
 }
 
-impl Protobuf<IbcHeight> for Height {}
+impl Protobuf<RawHeight> for Height {}
 
-impl TryFrom<IbcHeight> for Height {
+impl TryFrom<RawHeight> for Height {
     type Error = TypesError;
 
-    fn try_from(raw_height: IbcHeight) -> Result<Self, Self::Error> {
+    fn try_from(raw_height: RawHeight) -> Result<Self, Self::Error> {
         Height::new(raw_height.revision_number, raw_height.revision_height)
     }
 }
 
-impl From<Height> for IbcHeight {
+impl From<Height> for RawHeight {
     fn from(ics_height: Height) -> Self {
-        IbcHeight {
+        RawHeight {
             revision_number: ics_height.revision_number,
             revision_height: ics_height.revision_height,
         }
@@ -126,22 +136,6 @@ impl From<Height> for tendermint::block::Height {
     }
 }
 
-impl core::fmt::Debug for Height {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        f.debug_struct("Height")
-            .field("revision", &self.revision_number)
-            .field("height", &self.revision_height)
-            .finish()
-    }
-}
-
-/// Custom debug output to omit the packet data
-impl core::fmt::Display for Height {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        write!(f, "{}-{}", self.revision_number, self.revision_height)
-    }
-}
-
 impl FromStr for Height {
     type Err = TypesError;
 
@@ -149,7 +143,7 @@ impl FromStr for Height {
         let split: Vec<&str> = value.split('-').collect();
 
         if split.len() != 2 {
-            return Err(TypesError::invalid_height_object(value.to_owned()));
+            return Err(TypesError::invalid_height(value.to_owned()));
         }
 
         let revision_number = split[0]
@@ -165,6 +159,6 @@ impl FromStr for Height {
         }
 
         Height::new(revision_number, revision_height)
-            .map_err(|_| TypesError::invalid_height_object(value.to_owned()))
+            .map_err(|_| TypesError::invalid_height(value.to_owned()))
     }
 }

@@ -13,6 +13,7 @@ use secp256k1::{ecdsa::Signature, Message, PublicKey, SecretKey};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::Sha256;
 use subtle_encoding::base64;
+use types::signer::Signer;
 use utils::encode::{bech32, protobuf};
 
 use crate::error::Error;
@@ -219,7 +220,7 @@ pub mod keyring_test {
         let cosmos_chain = CosmosChain::new(file_path);
 
         let account = Secp256k1Account::new(
-            &cosmos_chain.config.chain_a_key_path,
+            &cosmos_chain.config.chain_key_path,
             &cosmos_chain.config.hd_path,
         )
         .expect("account error!");

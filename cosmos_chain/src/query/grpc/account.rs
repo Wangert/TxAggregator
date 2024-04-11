@@ -1,12 +1,12 @@
-use http::Uri;
 use ibc_proto::cosmos::auth::v1beta1::{
-    query_client::QueryClient as AuthQueryClient, BaseAccount, EthAccount, QueryAccountRequest, QueryAccountsRequest,
+    query_client::QueryClient as AuthQueryClient, BaseAccount, EthAccount, QueryAccountRequest,
+    QueryAccountsRequest,
 };
 use log::info;
 use prost::Message;
-use tonic::{codegen::ok, transport::Channel};
+use tonic::transport::Channel;
 
-use crate::{config::default::max_grpc_decoding_size, error::Error};
+use crate::error::Error;
 use tracing::info as tracing_info;
 
 pub async fn query_detail_account(
@@ -95,9 +95,16 @@ pub mod query_grpc_account_tests {
     #[test]
     pub fn query_all_acount_works() {
         let file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
-        let account = cosmos_chain.query_detail_account_by_address("cosmos1ddxt9pl8u3rhccay3228hvsnursj3w79lz82fu").expect("query account error!");
+        let rt = cosmos_chain.rt.clone();
+        let account = rt
+            .block_on(
+                cosmos_chain.query_detail_account_by_address(
+                    "cosmos1qjxsp8m9lp6q5xdzcqkvx4rmfj3qe4pyk2few7",
+                ),
+            )
+            .expect("query account error!");
 
         println!("Account: {:#?}", account);
     }

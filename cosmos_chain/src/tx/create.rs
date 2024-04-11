@@ -1,15 +1,18 @@
 use ibc_proto::{
-    cosmos::{tx::v1beta1::{
-        mode_info::{Single, Sum},
-        AuthInfo, Fee, ModeInfo, SignerInfo, TxBody, Tx, TxRaw, SignDoc,
-    }, auth::v1beta1::BaseAccount},
+    cosmos::{
+        auth::v1beta1::BaseAccount,
+        tx::v1beta1::{
+            mode_info::{Single, Sum},
+            AuthInfo, Fee, ModeInfo, SignDoc, SignerInfo, Tx, TxBody, TxRaw,
+        },
+    },
     google::protobuf::Any,
 };
 use utils::encode::protobuf;
 
-use crate::{error::Error, config::CosmosChainConfig, account::Secp256k1Account};
+use crate::{account::Secp256k1Account, config::CosmosChainConfig, error::Error};
 
-use super::types::{AccountSequence, Memo, GasConfig};
+use super::types::{GasConfig, Memo};
 
 pub fn create_and_sign_tx(
     chain_config: &CosmosChainConfig,
@@ -75,7 +78,8 @@ pub fn tx_body(proto_msgs: &[Any], memo: &Memo, extension_options: Vec<Any>) -> 
 }
 
 pub fn tx_body_bytes(tx_body: &TxBody) -> Result<Vec<u8>, Error> {
-    protobuf::encode_to_bytes(tx_body).map_err(|e| Error::utils_protobuf_encode("tx body".to_string(), e))
+    protobuf::encode_to_bytes(tx_body)
+        .map_err(|e| Error::utils_protobuf_encode("tx body".to_string(), e))
 }
 
 pub fn cosmos_signer_info(account_sequence: u64, key_bytes: Vec<u8>) -> SignerInfo {
@@ -97,7 +101,8 @@ pub fn cosmos_signer_info(account_sequence: u64, key_bytes: Vec<u8>) -> SignerIn
 }
 
 pub fn cosmos_signer_info_bytes(signer_info: &SignerInfo) -> Result<Vec<u8>, Error> {
-    protobuf::encode_to_bytes(signer_info).map_err(|e| Error::utils_protobuf_encode("cosmos signer info".to_string(), e))
+    protobuf::encode_to_bytes(signer_info)
+        .map_err(|e| Error::utils_protobuf_encode("cosmos signer info".to_string(), e))
 }
 
 pub fn auth_info(signer_info: SignerInfo, fee: Fee) -> AuthInfo {
@@ -109,5 +114,6 @@ pub fn auth_info(signer_info: SignerInfo, fee: Fee) -> AuthInfo {
 }
 
 pub fn auth_info_bytes(auth_info: &AuthInfo) -> Result<Vec<u8>, Error> {
-    protobuf::encode_to_bytes(auth_info).map_err(|e| Error::utils_protobuf_encode("auth info".to_string(), e))
+    protobuf::encode_to_bytes(auth_info)
+        .map_err(|e| Error::utils_protobuf_encode("auth info".to_string(), e))
 }

@@ -1,15 +1,16 @@
 use tendermint::block::{Header, Height};
-use tendermint_rpc::{Client, HttpClient, endpoint::broadcast::tx_async};
+use tendermint_rpc::{Client, HttpClient};
 
 use crate::{
     error::Error,
     query::types::{Block, BlockResults, HeaderResult},
 };
 
-pub fn latest_block(trpc: &mut HttpClient) -> Result<Block, Error> {
-    let rt = tokio::runtime::Runtime::new().expect("runtime create error");
-    let block_resp = rt.block_on(trpc
-        .latest_block())
+pub async fn latest_block(trpc: &mut HttpClient) -> Result<Block, Error> {
+    // let rt = tokio::runtime::Runtime::new().expect("runtime create error");
+    let block_resp = trpc
+        .latest_block()
+        .await
         .map_err(|e| Error::latest_block(e))?;
 
     Ok(Block::from(block_resp))
@@ -34,8 +35,16 @@ pub async fn block_results(trpc: &mut HttpClient, height: u32) -> Result<BlockRe
     Ok(BlockResults::from(block_results_resp))
 }
 
+pub async fn block(trpc: &mut HttpClient, height: Height) -> Result<Block, Error> {
+    let block_resp = trpc
+        .block(height)
+        .await
+        .map_err(|e| Error::latest_block(e))?;
 
-pub async fn detail_block_header(trpc: &mut HttpClient, height: tendermint::block::Height) -> Result<Header, Error> {
+    Ok(Block::from(block_resp))
+}
+
+pub async fn detail_block_header(trpc: &mut HttpClient, height: Height) -> Result<Header, Error> {
     let detail_block_header = trpc
         .header(height)
         .await
@@ -43,7 +52,10 @@ pub async fn detail_block_header(trpc: &mut HttpClient, height: tendermint::bloc
     Ok(detail_block_header.header)
 }
 
-pub async fn test_detail_block_header(trpc: &mut HttpClient, height: tendermint::block::Height) -> Result<HeaderResult, Error> {
+pub async fn test_detail_block_header(
+    trpc: &mut HttpClient,
+    height: tendermint::block::Height,
+) -> Result<HeaderResult, Error> {
     let detail_block_header = trpc
         .header(height)
         .await
@@ -63,20 +75,17 @@ pub mod trpc_block_tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    #[actix_rt::test]
-    pub async fn trpc_block_results_works() {
+    #[test]
+    pub fn trpc_block_results_works() {
         init();
         let file_path =
-<<<<<<< Updated upstream
-            "C:/Users/admin/Documents/GitHub//TxAggregator/cosmos_chain/src/config/chain_config.toml";
-=======
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
->>>>>>> Stashed changes
-        let mut cosmos_chain = CosmosChain::new(file_path);
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
 
-        let mut trpc_client = cosmos_chain
-            .tendermint_rpc_client();
-        let block_results = block_results(&mut trpc_client, 51027 as u32).await;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let mut trpc_client = cosmos_chain.tendermint_rpc_client();
+        let block_results = rt.block_on(block_results(&mut trpc_client, 50 as u32));
 
         match block_results {
             Ok(block_results) => println!("BlockResults: {:?}", block_results),
@@ -88,13 +97,12 @@ pub mod trpc_block_tests {
     pub async fn trpc_header_works() {
         init();
         let file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
-        let mut cosmos_chain = CosmosChain::new(file_path);
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
 
-        let mut trpc_client = cosmos_chain
-            .tendermint_rpc_client();
+        let mut trpc_client = cosmos_chain.tendermint_rpc_client();
 
-        let height = Height::from(51027 as u32);
+        let height = Height::from(50 as u32);
         let header_results = test_detail_block_header(&mut trpc_client, height).await;
 
         match header_results {

@@ -1,10 +1,11 @@
 use std::num::ParseIntError;
+use subtle_encoding::Error as SubtleError;
 use utils::encode::error::EncodeError;
 
+use crate::{ibc_core::{ics03_connection::error::ConnectionError, ics04_channel::error::ChannelError, ics23_commitment::error::CommitmentError, ics24_host::error::IdentifierError}, proofs::ProofError, signer::SignerError};
 use flex_error::{define_error, TraceError};
 use tendermint::error::Error as TmError;
-
-use crate::signer::SignerError;
+use tendermint_proto::Error as TendermintProtoError;
 
 define_error! {
     TypesError {
@@ -52,9 +53,17 @@ define_error! {
         TendermintHash
             [ TraceError<TmError> ]
             |_| { "tendermint hash error" },
+
         // height
         InvalidHeight
-            |_| { "revision height cannot be zero" },
+            { height: String }
+            |e| { format_args!("invalid height {0}", e.height) },
+        InvalidRawHeader
+            [ TraceError<TendermintProtoError> ]
+            | _ | { "invalid raw header" },
+        InvalidRawHeaderSet
+            [ TraceError<TmError> ]
+            | _ | { "invalid raw header" },
         InvalidHeightObject
             { height: String }
             |e| { format_args!("invalid height {0}", e.height) },
@@ -66,6 +75,16 @@ define_error! {
             |e| { format_args!("cannot convert into a `Height` type from string {0}", e.height) },
         ZeroHeight
             |_| { "attempted to parse invalid height 0-0" },
+        UnknownHeaderType
+            { header_type: String }
+            | e | {
+                format_args!("unknown header type: {0}",
+                    e.header_type)
+            },
+        
+        Ics24Host
+            [ TraceError<IdentifierError> ]
+            |e| { format!("Ics24 Host Error: {}", e) },
 
         // ics07_tendermint
         InvalidTrustingPeriod
@@ -85,34 +104,10 @@ define_error! {
             [ SignerError ]
             | _ | { "failed to parse signer" },
 
-        // ics24_host identifier
-        IdContainSeparator
-            { id : String }
-            | e | { format_args!("identifier {0} cannot contain separator '/'", e.id) },
-        IdInvalidLength
-            {
-                id: String,
-                length: usize,
-                min: usize,
-                max: usize,
-            }
-            |e| { format_args!("identifier {0} has invalid length {1} must be between {2}-{3} characters", e.id, e.length, e.min, e.max) },
-        IdInvalidCharacter
-            { id: String }
-            |e| { format_args!("identifier {0} must only contain alphanumeric characters or `.`, `_`, `+`, `-`, `#`, - `[`, `]`, `<`, `>`", e.id) },
-        IdEmpty
-            |_| { "identifier cannot be empty" },
-        ChainIdInvalidFormat
-            { id: String }
-            |e| { format_args!("chain identifiers are expected to be in epoch format {0}", e.id) },
-        ClientIdInvalidFormat
-            { id: String }
-            |e| { format_args!("client identifiers are expected to be in epoch format {0}", e.id) },
-        UnknownClientType
-            { client_type: String }
-            |e| { format_args!("unknown client type: {0}", e.client_type) },
-        InvalidCounterpartyChannelId
-            |_| { "Invalid channel id in counterparty" },
+        // ics23_commitment
+        CommitmentProofDecodingFailed
+            [ TraceError<prost::DecodeError> ]
+            |_| { "failed to decode commitment proof" },
 
         // ibc_events
         IncorrectEventType
@@ -123,6 +118,83 @@ define_error! {
             |e| { format_args!("Unable to parse abci event type '{}' into IbcEvent", e.event_type)},
         AttributesDecode
             [ TraceError<EncodeError> ]
-            |_| { "attributes decode error" }
+            |_| { "attributes decode error" },
+
+        // ics04_channel
+        InvalidStringAsSequence
+            { value: String }
+            [ TraceError<core::num::ParseIntError> ]
+            | e | {
+                format_args!(
+                    "String {0} cannot be converted to packet sequence",
+                    e.value)
+            },
+        ChannelError
+            [ ChannelError ]
+            | _ | { "channel error" },
+
+        // ics03_connection
+        ConnectionInvalidIdentifier
+            | _ | { "connection invalid identifier" },
+
+        // other
+        ProtobufDecode
+            [ TraceError<prost::DecodeError> ]
+            | _ | { "protobuf decode error" },
+
+        MissingValidatorSet
+            |_| { "missing validator set" },
+
+        MissingTrustedValidatorSet
+            |_| { "missing trusted validator set" },
+
+        MissingTrustedHeight
+            |_| { "missing trusted height" },
+
+        MissingTrustingPeriod
+            |_| { "missing trusting period" },
+
+        MissingUnbondingPeriod
+            |_| { "missing unbonding period" },
+
+        MissingTrustThreshold
+            |_| { "missing trust threshold" },
+
+        MissingSignedHeader
+            |_| { "missing signed header" },
+            InvalidHeader
+            { reason: String }
+            [ TmError ]
+            |e| { format_args!("invalid header, failed basic validation: {}", e.reason) },
+        MismatchedRevisions
+            {
+                current_revision: u64,
+                update_revision: u64,
+            }
+            |e| {
+                format_args!("the header's current/trusted revision number ({0}) and the update's revision number ({1}) should be the same", e.current_revision, e.update_revision)
+            },
+        HexDecode
+            [ TraceError<SubtleError> ]
+            |e| { format!("hex bytes decode error: {}", e) },
+        AbciEventMissingRawHeader
+            |_| { "abic_event miss raw header" },
+
+        RawMsgUpdateClientHeaderEmpty
+            |_| { "raw msg update client header empty" },
+        ConnectionError
+            [ TraceError<ConnectionError> ]
+            |e| { format!("connection error: {}", e) },
+        CommitmentError
+            [ TraceError<CommitmentError> ]
+            |e| { format!("commitment error: {}", e) },
+        IdentifierError
+            [ TraceError<IdentifierError> ]
+            |e| { format!("identifier error: {}", e) },
+        ProofError
+            [ TraceError<ProofError> ]
+            |e| { format!("proof error: {}", e) },
+        EmptyVersions
+            | _ | { "empty supported versions" },
     }
 }
