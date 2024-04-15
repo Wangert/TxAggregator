@@ -628,7 +628,7 @@ impl CosmosChain {
                 None,
                 None,
                 None,
-                height,
+                height.increment(),
             )
             .map_err(Error::proof_error)
         } else {
@@ -794,7 +794,7 @@ pub mod chain_tests {
     use std::str::FromStr;
 
     use log::info;
-    use types::ibc_core::ics24_host::identifier::{ClientId, ConnectionId};
+    use types::ibc_core::ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId};
 
     use crate::common::QueryHeight;
 
@@ -911,12 +911,31 @@ pub mod chain_tests {
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = cosmos_chain.rt.clone();
-        let connnectuon_id = ConnectionId::from_str("connection-1").expect("connection id error!");
+        let connection_id = ConnectionId::from_str("connection-1").expect("connection id error!");
         let connection_result =
-            rt.block_on(cosmos_chain.query_connection(&connnectuon_id, QueryHeight::Latest, true));
+            rt.block_on(cosmos_chain.query_connection(&connection_id, QueryHeight::Latest, true));
 
         match connection_result {
             Ok((connnection, _)) => println!("connection: {:?}", connnection),
+            Err(e) => panic!("{}", e),
+        }
+    }
+
+    #[test]
+    pub fn query_channel_works() {
+        init();
+        let file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
+
+        let rt = cosmos_chain.rt.clone();
+        let channel_id = ChannelId::from_str("channel-0").expect("channel id error!");
+        let port_id = PortId::from_str("transfer").unwrap();
+        let channel_result =
+            rt.block_on(cosmos_chain.query_channel(&channel_id, &port_id, QueryHeight::Latest, true));
+
+        match channel_result {
+            Ok((channel, _)) => println!("channel: {:?}", channel),
             Err(e) => panic!("{}", e),
         }
     }

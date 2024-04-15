@@ -18,7 +18,9 @@ use types::{
             },
             error::ChannelError,
             events::extract_channel_id,
-            message::{MsgChannelOpenAck, MsgChannelOpenConfirm, MsgChannelOpenInit, MsgChannelOpenTry},
+            message::{
+                MsgChannelOpenAck, MsgChannelOpenConfirm, MsgChannelOpenInit, MsgChannelOpenTry,
+            },
             version::Version,
         },
         ics24_host::identifier::{ChainId, ChannelId, ClientId, ConnectionId, PortId},
@@ -215,12 +217,16 @@ impl Channel {
     }
 
     /// Sends a channel open handshake message.
-    pub async fn channel_handshake(&mut self) -> Result<(), Error> {
+    pub async fn channel_handshake(&mut self) -> Result<Option<IbcEvent>, Error> {
         let (a_state, b_state) = self.update_channel_states().await?;
         debug!(
             "do_chan_open_handshake with channel end states: {}, {}",
             a_state, b_state
         );
+
+        let mut ibc_event: Option<IbcEvent> = None;
+        println!("a_state({}) - b_state({})", a_state, b_state);
+        info!("a_state({}) - b_state({})", a_state, b_state);
 
         match (a_state, b_state) {
             // send the Init message to chain a (source)
@@ -228,6 +234,8 @@ impl Channel {
                 let event = self.flipped().channel_open_init().await?;
                 let channel_id = extract_channel_id(&event).map_err(Error::channel_error)?;
                 self.side_a.channel_id = Some(channel_id.clone());
+
+                ibc_event = Some(event);
             }
 
             // send the Try message to chain a (source)
@@ -236,6 +244,8 @@ impl Channel {
 
                 let channel_id = extract_channel_id(&event).map_err(Error::channel_error)?;
                 self.side_a.channel_id = Some(channel_id.clone());
+
+                ibc_event = Some(event);
             }
 
             // send the Try message to chain b (target)
@@ -244,26 +254,33 @@ impl Channel {
 
                 let channel_id = extract_channel_id(&event).map_err(Error::channel_error)?;
                 self.side_b.channel_id = Some(channel_id.clone());
+
+                ibc_event = Some(event);
             }
 
             // send the Ack message to chain a (source)
             (State::Init, State::TryOpen) | (State::TryOpen, State::TryOpen) => {
-                self.flipped().channel_open_ack().await?;
+                let event = self.flipped().channel_open_ack().await?;
+
+                ibc_event = Some(event);
             }
 
             // send the Ack message to chain b (target)
             (State::TryOpen, State::Init) => {
-                self.channel_open_ack().await?;
+                let event = self.channel_open_ack().await?;
+                ibc_event = Some(event);
             }
 
             // send the Confirm message to chain b (target)
             (State::Open, State::TryOpen) => {
-                self.channel_open_confirm().await?;
+                let event = self.channel_open_confirm().await?;
+                ibc_event = Some(event);
             }
 
             // send the Confirm message to chain a (source)
             (State::TryOpen, State::Open) => {
-                self.flipped().channel_open_confirm().await?;
+                let event = self.flipped().channel_open_confirm().await?;
+                ibc_event = Some(event);
             }
 
             (State::Open, State::Open) => {
@@ -283,7 +300,7 @@ impl Channel {
             }
         }
 
-        Ok(())
+        Ok(ibc_event)
     }
 
     async fn update_channel_states(&mut self) -> Result<(State, State), Error> {
@@ -310,11 +327,11 @@ impl Channel {
         let updated_chan_b_id = self.target_chain_channel_id();
 
         let b_channel = if let Some(chan_id) = updated_chan_b_id.as_ref() {
-            let (a_channel, _) = self
-                .source_chain()
+            let (b_channel, _) = self
+                .target_chain()
                 .query_channel(chan_id, &chan_a_port_id, QueryHeight::Latest, true)
                 .await?;
-            a_channel
+            b_channel
         } else {
             ChannelEnd::default()
         };
@@ -498,7 +515,7 @@ impl Channel {
             )));
         }
 
-        // Connection must exist on destination
+        // Connection must exist on target chain
         self.target_chain()
             .query_connection(
                 self.target_chain_connection_id(),
@@ -514,10 +531,16 @@ impl Channel {
             .build_channel_proofs(self.source_chain_port_id(), source_channel_id, query_height)
             .await?;
 
-        // Build message(s) to update client on destination
-        let mut msgs = self
+        // Build message(s) to update client on target chain
+        let target_update_client_msgs = self
             .build_update_client_on_target_chain(proofs.height())
             .await?;
+
+        let update_event = self.target_chain()
+            .send_messages_and_wait_commit(target_update_client_msgs)
+            .await?;
+
+        println!("update client: {:?}", update_event);
 
         let counterparty = Counterparty::new(
             self.source_chain_port_id().clone(),
@@ -548,12 +571,14 @@ impl Channel {
         // Build the domain type message
         let new_msg = MsgChannelOpenTry {
             port_id: self.target_chain_port_id().clone(),
-            previous_channel_id,
+            previous_channel_id: None,
             counterparty_version: source_channel_end.version().clone(),
             channel,
             proofs,
             signer,
         };
+
+        let mut msgs = vec![];
 
         msgs.push(new_msg.to_any());
         Ok(msgs)
@@ -599,7 +624,7 @@ impl Channel {
             .build_channel_proofs(self.source_chain_port_id(), source_channel_id, query_height)
             .await?;
 
-        // Build message(s) to update client on destination
+        // Build message(s) to update client on target chain
         let mut msgs = self
             .build_update_client_on_target_chain(proofs.height())
             .await?;
@@ -644,7 +669,7 @@ impl Channel {
             )
             .await?;
 
-        // Connection must exist on target
+        // Connection must exist on target chain
         self.target_chain()
             .query_connection(
                 self.target_chain_connection_id(),
@@ -660,7 +685,7 @@ impl Channel {
             .build_channel_proofs(self.source_chain_port_id(), source_channel_id, query_height)
             .await?;
 
-        // Build message(s) to update client on destination
+        // Build message to update client on target chain
         let mut msgs = self
             .build_update_client_on_target_chain(proofs.height())
             .await?;
@@ -876,8 +901,6 @@ impl Channel {
             .target_chain_channel_id()
             .ok_or_else(|| Error::channel_error(ChannelError::missing_channel_id()))?;
 
-        // If there is a channel present on the destination chain,
-        // the counterparty should look like this:
         let counterparty = Counterparty::new(
             self.source_chain_port_id().clone(),
             self.source_chain_channel_id().cloned(),
@@ -911,8 +934,8 @@ impl Channel {
             )
             .await?;
 
-        // Check if a channel is expected to exist on destination chain
-        // A channel must exist on destination chain for Ack and Confirm Tx-es to succeed
+        // Check if a channel is expected to exist on target chain
+        // A channel must exist on target chain for Ack and Confirm Tx-es to succeed
         if dst_channel.state_matches(&State::Uninitialized) {
             return Err(Error::channel_error(
                 ChannelError::missing_channel_on_target(),
@@ -928,7 +951,16 @@ impl Channel {
 
 #[cfg(test)]
 pub mod channel_tests {
+    use std::{str::FromStr, time::Duration};
+
+    use types::ibc_core::{
+        ics04_channel::{channel::Ordering, version::Version},
+        ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId},
+    };
+
     use crate::chain::CosmosChain;
+
+    use super::{Channel, ChannelSide};
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -944,5 +976,57 @@ pub mod channel_tests {
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
+
+        // let channel_side_a = ChannelSide {
+        //     chain: cosmos_chain_a,
+        //     client_id: ClientId::from_str("07-tendermint-10").unwrap(),
+        //     connection_id: ConnectionId::from_str("connection-5").unwrap(),
+        //     port_id: PortId::from_str("transfer").unwrap(),
+        //     channel_id: None,
+        //     version: Some(Version::default()),
+        // };
+
+        // let channel_side_b = ChannelSide {
+        //     chain: cosmos_chain_b,
+        //     client_id: ClientId::from_str("07-tendermint-4").unwrap(),
+        //     connection_id: ConnectionId::from_str("connection-2").unwrap(),
+        //     port_id: PortId::from_str("transfer").unwrap(),
+        //     channel_id: None,
+        //     version: Some(Version::default()),
+        // };
+
+        let channel_side_a = ChannelSide {
+            chain: cosmos_chain_a,
+            client_id: ClientId::from_str("07-tendermint-10").unwrap(),
+            connection_id: ConnectionId::from_str("connection-5").unwrap(),
+            port_id: PortId::from_str("transfer").unwrap(),
+            channel_id: Some(ChannelId::from_str("channel-2").unwrap()),
+            version: Some(Version::default()),
+        };
+
+        let channel_side_b = ChannelSide {
+            chain: cosmos_chain_b,
+            client_id: ClientId::from_str("07-tendermint-4").unwrap(),
+            connection_id: ConnectionId::from_str("connection-2").unwrap(),
+            port_id: PortId::from_str("transfer").unwrap(),
+            channel_id: Some(ChannelId::from_str("channel-0").unwrap()),
+            version: Some(Version::default()),
+        };
+
+        let mut channel = Channel {
+            ordering: Ordering::Unordered,
+            side_a: channel_side_a,
+            side_b: channel_side_b,
+            connection_delay: Duration::from_secs(100),
+        };
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(channel.channel_handshake());
+
+        println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
+        match result {
+            Ok(events) => println!("Event: {:?}", events),
+            Err(e) => println!("{:?}", e),
+        }
     }
 }
