@@ -18,6 +18,7 @@ use types::{
             },
             error::ChannelError,
             events::extract_channel_id,
+            message::{MsgChannelOpenAck, MsgChannelOpenConfirm, MsgChannelOpenInit, MsgChannelOpenTry},
             version::Version,
         },
         ics24_host::identifier::{ChainId, ChannelId, ClientId, ConnectionId, PortId},
@@ -926,16 +927,15 @@ impl Channel {
 }
 
 #[cfg(test)]
-pub mod connection_tests {
+pub mod channel_tests {
     use crate::chain::CosmosChain;
-
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
     #[test]
-    pub fn connection_handshake_works() {
+    pub fn channel_handshake_works() {
         init();
         let a_file_path =
             "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
