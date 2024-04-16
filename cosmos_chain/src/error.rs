@@ -196,10 +196,14 @@ define_error! {
             |_| { "connectuon state error" },
         BadConnectionState
             |_| { "bad connection state" },
-        
+        ConnectionHandshkeAbnormal
+            |_| { "connection handshake abnormal" },
+
         // channel
         ChannelCompleted
             |_| { "channel completed" },
+        ChannelHandshkeAbnormal
+            |_| { "channel handshake abnormal" },
         ChannelError
             [ TraceError<ChannelError> ]
             |e| { format!("channel error: {}", e) },

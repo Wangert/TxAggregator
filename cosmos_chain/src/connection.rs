@@ -280,10 +280,56 @@ impl Connection {
         return Ok(encoded_messages);
     }
 
+    fn update_connection_id(
+        &mut self,
+        client_id: ClientId,
+        connection_id: Option<ConnectionId>,
+    ) -> Result<(), Error> {
+        if self.source_chain_client_id() == client_id {
+            self.side_a.connection_id = connection_id;
+        } else if self.target_chain_client_id() == client_id {
+            self.side_b.connection_id = connection_id;
+        } else {
+            return Err(Error::connection_handshke_abnormal());
+        }
+
+        Ok(())
+    }
+
+    pub async fn handshake(&mut self) -> Result<(), Error> {
+        loop {
+            let event_result = self.connection_handshake().await;
+            match event_result {
+                Ok(Some(IbcEvent::OpenInitConnection(e))) => {
+                    let init_chain_client_id = e.attributes().client_id.clone();
+                    let update_connection_id = e.attributes().connection_id.clone();
+                    self.update_connection_id(init_chain_client_id, update_connection_id)?;
+                }
+                Ok(Some(IbcEvent::OpenTryConnection(e))) => {
+                    let try_chain_client_id = e.attributes().client_id.clone();
+                    let update_connection_id = e.attributes().connection_id.clone();
+                    self.update_connection_id(try_chain_client_id, update_connection_id)?;
+                }
+                Err(e) if e.to_string() == Error::connection_completed().to_string() => {
+                    break;
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     // Sends a connection open handshake message.
     // The message sent depends on the chain status of the connection.
     async fn connection_handshake(&mut self) -> Result<Option<IbcEvent>, Error> {
         info!("【connection handshake】");
+        println!("【connection handshake】");
         let (a_state, b_state) = self.update_connection_state().await?;
         debug!(
             "connection_handshake with connection end states: {}, {}",
@@ -292,12 +338,26 @@ impl Connection {
 
         let mut ibc_event: Option<IbcEvent> = None;
 
-        println!("a_state({}) - b_state({})", a_state, b_state);
-        info!("a_state({}) - b_state({})", a_state, b_state);
+        println!(
+            "【chain_id({}):state({}) - chain_id({}):state({})",
+            self.source_chain().id(),
+            a_state,
+            self.target_chain().id(),
+            b_state
+        );
+        info!(
+            "【chain_id({}):state({}) - chain_id({}):state({})",
+            self.source_chain().id(),
+            a_state,
+            self.target_chain().id(),
+            b_state
+        );
+
         match (a_state, b_state) {
             // send the OpenInit message to chain a (source)
             (State::Uninitialized, State::Uninitialized) => {
                 info!("send a OpenInit message");
+                println!("send a OpenInit message");
                 let event = self.flipped().build_connection_open_init_and_send().await?;
                 let connection_id =
                     extract_connection_id(&event).map_err(Error::connection_error)?;
@@ -309,6 +369,7 @@ impl Connection {
             // send the OpenTry message to chain a (source)
             (State::Uninitialized, State::Init) | (State::Init, State::Init) => {
                 info!("send a OpenTry message");
+                println!("send a OpenTry message");
                 let event = self.flipped().build_connection_open_try_and_send().await?;
 
                 let connection_id =
@@ -321,6 +382,7 @@ impl Connection {
             // send the OpenTry message to chain b (target)
             (State::Init, State::Uninitialized) => {
                 info!("send a OpenInit message");
+                println!("send a OpenInit message");
                 let event = self.build_connection_open_try_and_send().await?;
 
                 let connection_id =
@@ -333,6 +395,7 @@ impl Connection {
             // send the Ack message to chain a (source)
             (State::Init, State::TryOpen) | (State::TryOpen, State::TryOpen) => {
                 info!("send a OpenAck message");
+                println!("send a OpenAck message");
                 let event = self.flipped().build_connection_open_ack_and_send().await?;
 
                 ibc_event = Some(event)
@@ -341,6 +404,7 @@ impl Connection {
             // send the Ack message to chain b (target)
             (State::TryOpen, State::Init) => {
                 info!("send a OpenAck message");
+                println!("send a OpenAck message");
                 let event = self.build_connection_open_ack_and_send().await?;
 
                 ibc_event = Some(event)
@@ -349,6 +413,7 @@ impl Connection {
             // send the Confirm message to chain b (target)
             (State::Open, State::TryOpen) => {
                 info!("send a OpenConfirm message");
+                println!("send a OpenConfirm message");
                 let event = self.build_connection_open_confirm_and_send().await?;
 
                 ibc_event = Some(event)
@@ -357,6 +422,7 @@ impl Connection {
             // send the Confirm message to chain a (source)
             (State::TryOpen, State::Open) => {
                 info!("send a OpenConfirm message");
+                println!("send a OpenConfirm message");
                 let event = self
                     .flipped()
                     .build_connection_open_confirm_and_send()
@@ -366,6 +432,7 @@ impl Connection {
             }
             (State::Open, State::Open) => {
                 info!("connection handshake already finished for {:?}", self);
+                println!("connection handshake already finished for {:?}", self);
                 return Err(Error::connection_completed());
             }
 
@@ -995,17 +1062,17 @@ pub mod connection_tests {
 
         let mut connection_side_a = ConnectionSide::new(
             cosmos_chain_a,
-            ClientId::from_str("07-tendermint-10").unwrap(),
+            ClientId::from_str("07-tendermint-12").unwrap(),
         );
         let mut connection_side_b = ConnectionSide::new(
             cosmos_chain_b,
-            ClientId::from_str("07-tendermint-4").unwrap(), 
+            ClientId::from_str("07-tendermint-6").unwrap(),
         );
 
-        connection_side_a.connection_id = Some(ConnectionId::from_str("connection-5").unwrap());
-        connection_side_b.connection_id = Some(ConnectionId::from_str("connection-2").unwrap());
-        // connection_side_a.connection_id = None;
-        // connection_side_b.connection_id = None;
+        // connection_side_a.connection_id = Some(ConnectionId::from_str("connection-5").unwrap());
+        // connection_side_b.connection_id = Some(ConnectionId::from_str("connection-2").unwrap());
+        connection_side_a.connection_id = None;
+        connection_side_b.connection_id = None;
         let mut connection = Connection::new(
             connection_side_a,
             connection_side_b,
@@ -1013,12 +1080,18 @@ pub mod connection_tests {
         );
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(connection.connection_handshake());
-
+        // let result = rt.block_on(connection.connection_handshake());
+        let result = rt.block_on(connection.handshake());
         println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
         match result {
-            Ok(events) => println!("Event: {:?}", events),
+            Ok(_) => println!("connection: {:?}", connection),
             Err(e) => println!("{:?}", e),
         }
+    }
+
+    #[test]
+    pub fn test_error() {
+        let e = Error::connection_completed();
+        assert_eq!(e.to_string(), e.to_string());
     }
 }

@@ -216,6 +216,51 @@ impl Channel {
         self.side_b.version()
     }
 
+    fn update_channel_id(
+        &mut self,
+        connection_id: ConnectionId,
+        channel_id: Option<ChannelId>,
+    ) -> Result<(), Error> {
+        if self.source_chain_connection_id().clone() == connection_id {
+            self.side_a.channel_id = channel_id;
+        } else if self.target_chain_connection_id().clone() == connection_id {
+            self.side_b.channel_id = channel_id;
+        } else {
+            return Err(Error::channel_handshke_abnormal());
+        }
+
+        Ok(())
+    }
+
+    pub async fn handshake(&mut self) -> Result<(), Error> {
+        loop {
+            let event_result = self.channel_handshake().await;
+            match event_result {
+                Ok(Some(IbcEvent::OpenInitChannel(e))) => {
+                    let init_chain_connection_id = e.connection_id.clone();
+                    let update_channel_id = e.channel_id().cloned();
+                    self.update_channel_id(init_chain_connection_id, update_channel_id)?;
+                }
+                Ok(Some(IbcEvent::OpenTryChannel(e))) => {
+                    let try_chain_connection_id = e.connection_id.clone();
+                    let update_channel_id = e.channel_id().cloned();
+                    self.update_channel_id(try_chain_connection_id, update_channel_id)?;
+                }
+                Err(e) if e.to_string() == Error::channel_completed().to_string() => {
+                    break;
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Sends a channel open handshake message.
     pub async fn channel_handshake(&mut self) -> Result<Option<IbcEvent>, Error> {
         let (a_state, b_state) = self.update_channel_states().await?;
@@ -225,8 +270,20 @@ impl Channel {
         );
 
         let mut ibc_event: Option<IbcEvent> = None;
-        println!("a_state({}) - b_state({})", a_state, b_state);
-        info!("a_state({}) - b_state({})", a_state, b_state);
+        println!(
+            "【chain_id({}):state({}) - chain_id({}):state({})",
+            self.source_chain().id(),
+            a_state,
+            self.target_chain().id(),
+            b_state
+        );
+        info!(
+            "【chain_id({}):state({}) - chain_id({}):state({})",
+            self.source_chain().id(),
+            a_state,
+            self.target_chain().id(),
+            b_state
+        );
 
         match (a_state, b_state) {
             // send the Init message to chain a (source)
@@ -285,6 +342,7 @@ impl Channel {
 
             (State::Open, State::Open) => {
                 info!("channel handshake already finished for {}", self);
+                println!("channel handshake already finished for {}", self);
                 return Err(Error::channel_completed());
             }
 
@@ -977,12 +1035,30 @@ pub mod channel_tests {
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
 
+        let channel_side_a = ChannelSide {
+            chain: cosmos_chain_a,
+            client_id: ClientId::from_str("07-tendermint-12").unwrap(),
+            connection_id: ConnectionId::from_str("connection-8").unwrap(),
+            port_id: PortId::from_str("transfer").unwrap(),
+            channel_id: None,
+            version: Some(Version::default()),
+        };
+
+        let channel_side_b = ChannelSide {
+            chain: cosmos_chain_b,
+            client_id: ClientId::from_str("07-tendermint-6").unwrap(),
+            connection_id: ConnectionId::from_str("connection-5").unwrap(),
+            port_id: PortId::from_str("transfer").unwrap(),
+            channel_id: None,
+            version: Some(Version::default()),
+        };
+
         // let channel_side_a = ChannelSide {
         //     chain: cosmos_chain_a,
         //     client_id: ClientId::from_str("07-tendermint-10").unwrap(),
         //     connection_id: ConnectionId::from_str("connection-5").unwrap(),
         //     port_id: PortId::from_str("transfer").unwrap(),
-        //     channel_id: None,
+        //     channel_id: Some(ChannelId::from_str("channel-2").unwrap()),
         //     version: Some(Version::default()),
         // };
 
@@ -991,27 +1067,9 @@ pub mod channel_tests {
         //     client_id: ClientId::from_str("07-tendermint-4").unwrap(),
         //     connection_id: ConnectionId::from_str("connection-2").unwrap(),
         //     port_id: PortId::from_str("transfer").unwrap(),
-        //     channel_id: None,
+        //     channel_id: Some(ChannelId::from_str("channel-0").unwrap()),
         //     version: Some(Version::default()),
         // };
-
-        let channel_side_a = ChannelSide {
-            chain: cosmos_chain_a,
-            client_id: ClientId::from_str("07-tendermint-10").unwrap(),
-            connection_id: ConnectionId::from_str("connection-5").unwrap(),
-            port_id: PortId::from_str("transfer").unwrap(),
-            channel_id: Some(ChannelId::from_str("channel-2").unwrap()),
-            version: Some(Version::default()),
-        };
-
-        let channel_side_b = ChannelSide {
-            chain: cosmos_chain_b,
-            client_id: ClientId::from_str("07-tendermint-4").unwrap(),
-            connection_id: ConnectionId::from_str("connection-2").unwrap(),
-            port_id: PortId::from_str("transfer").unwrap(),
-            channel_id: Some(ChannelId::from_str("channel-0").unwrap()),
-            version: Some(Version::default()),
-        };
 
         let mut channel = Channel {
             ordering: Ordering::Unordered,
@@ -1021,8 +1079,8 @@ pub mod channel_tests {
         };
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(channel.channel_handshake());
-
+        // let result = rt.block_on(channel.channel_handshake());
+        let result = rt.block_on(channel.handshake());
         println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
         match result {
             Ok(events) => println!("Event: {:?}", events),

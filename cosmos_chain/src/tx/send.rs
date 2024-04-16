@@ -78,8 +78,6 @@ pub async fn send_tx(
     )
     .await?;
 
-    // println!("PPPPPPPPPPPPPPPPP");
-    // println!("{:?}", tx_result);
     Ok(tx_result)
 }
 
