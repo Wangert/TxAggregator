@@ -403,13 +403,11 @@ impl IbcEvent {
 }
 
 pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent, TypesError> {
-   
-//    println!("QQQQQQQQQQQQQQQQQQQQQ");
-//    println!("{:?}", abci_event);
+    //    println!("QQQQQQQQQQQQQQQQQQQQQ");
+    //    println!("{:?}", abci_event);
 
     match abci_event.kind.parse() {
         Ok(IbcEventType::CreateClient) => {
-
             // println!("WWWWWWWWWWWWWWWWWWWWWWWW");
             let create_attributes = extract_attributes_from_client_event(abci_event)?;
             let create_client_event = ClientEvents::CreateClient(create_attributes);
@@ -438,25 +436,24 @@ pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent,
         Ok(IbcEventType::OpenConfirmConnection) => Ok(IbcEvent::OpenConfirmConnection(
             connection_open_confirm_try_from_abci_event(abci_event)?,
         )),
-        // Ok(IbcEventType::OpenInitChannel) => Ok(IbcEvent::OpenInitChannel(
-        //     channel_open_init_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
-        // )),
-        // Ok(IbcEventType::OpenTryChannel) => Ok(IbcEvent::OpenTryChannel(
-        //     channel_open_try_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
-        // )),
-        // Ok(IbcEventType::OpenAckChannel) => Ok(IbcEvent::OpenAckChannel(
-        //     channel_open_ack_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
-        // )),
-        // Ok(IbcEventType::OpenConfirmChannel) => Ok(IbcEvent::OpenConfirmChannel(
-        //     channel_open_confirm_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
-        // )),
-        // Ok(IbcEventType::CloseInitChannel) => Ok(IbcEvent::CloseInitChannel(
-        //     channel_close_init_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
-        // )),
-        // Ok(IbcEventType::CloseConfirmChannel) => Ok(IbcEvent::CloseConfirmChannel(
-        //     channel_close_confirm_try_from_abci_event(abci_event)
-        //         .map_err(IbcEventError::channel)?,
-        // )),
+        Ok(IbcEventType::OpenInitChannel) => Ok(IbcEvent::OpenInitChannel(
+            channel_open_init_try_from_abci_event(abci_event)?,
+        )),
+        Ok(IbcEventType::OpenTryChannel) => Ok(IbcEvent::OpenTryChannel(
+            channel_open_try_try_from_abci_event(abci_event)?,
+        )),
+        Ok(IbcEventType::OpenAckChannel) => Ok(IbcEvent::OpenAckChannel(
+            channel_open_ack_try_from_abci_event(abci_event)?,
+        )),
+        Ok(IbcEventType::OpenConfirmChannel) => Ok(IbcEvent::OpenConfirmChannel(
+            channel_open_confirm_try_from_abci_event(abci_event)?,
+        )),
+        Ok(IbcEventType::CloseInitChannel) => Ok(IbcEvent::CloseInitChannel(
+            channel_close_init_try_from_abci_event(abci_event)?,
+        )),
+        Ok(IbcEventType::CloseConfirmChannel) => Ok(IbcEvent::CloseConfirmChannel(
+            channel_close_confirm_try_from_abci_event(abci_event)?,
+        )),
         // Ok(IbcEventType::SendPacket) => Ok(IbcEvent::SendPacket(
         //     send_packet_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
         // )),
@@ -518,8 +515,12 @@ fn extract_attributes_from_client_event(event: &AbciEvent) -> Result<ClientAttri
         let value = tag.value.as_str();
         // println!("key: {}; value: {}", key, value);
         match key {
-            ClientEvents::CLIENT_ID_ATTRIBUTE_KEY => attr.client_id = value.parse().map_err(TypesError::ics24_host)?,
-            ClientEvents::CLIENT_TYPE_ATTRIBUTE_KEY => attr.client_type = value.parse().map_err(TypesError::ics24_host)?,
+            ClientEvents::CLIENT_ID_ATTRIBUTE_KEY => {
+                attr.client_id = value.parse().map_err(TypesError::ics24_host)?
+            }
+            ClientEvents::CLIENT_TYPE_ATTRIBUTE_KEY => {
+                attr.client_type = value.parse().map_err(TypesError::ics24_host)?
+            }
             ClientEvents::CONSENSUS_HEIGHT_ATTRIBUTE_KEY => {
                 attr.consensus_height = value.parse()?
             }
@@ -598,7 +599,41 @@ fn extract_attributes_from_connection_event(
     Ok(attr)
 }
 
-fn channel_extract_attributes_from_tx(event: &AbciEvent) -> Result<ChannelAttributes, TypesError> {
+pub fn channel_open_init_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ChannelEvents::OpenInit, TypesError> {
+    extract_attributes_from_channel_event(abci_event).map(ChannelEvents::OpenInit::try_from)?
+}
+
+pub fn channel_open_try_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ChannelEvents::OpenTry, TypesError> {
+    extract_attributes_from_channel_event(abci_event).map(ChannelEvents::OpenTry::try_from)?
+}
+
+pub fn channel_open_ack_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ChannelEvents::OpenAck, TypesError> {
+    extract_attributes_from_channel_event(abci_event).map(ChannelEvents::OpenAck::try_from)?
+}
+
+pub fn channel_open_confirm_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ChannelEvents::OpenConfirm, TypesError> {
+    extract_attributes_from_channel_event(abci_event).map(ChannelEvents::OpenConfirm::try_from)?
+}
+
+pub fn channel_close_init_try_from_abci_event(abci_event: &AbciEvent,) -> Result<ChannelEvents::CloseInit, TypesError> {
+    extract_attributes_from_channel_event(abci_event).map(ChannelEvents::CloseInit::try_from)?
+}
+
+pub fn channel_close_confirm_try_from_abci_event(abci_event: &AbciEvent,) -> Result<ChannelEvents::CloseConfirm, TypesError> {
+    extract_attributes_from_channel_event(abci_event).map(ChannelEvents::CloseConfirm::try_from)?
+}
+
+fn extract_attributes_from_channel_event(
+    event: &AbciEvent,
+) -> Result<ChannelAttributes, TypesError> {
     let mut attr = ChannelAttributes::default();
 
     for tag in &event.attributes {

@@ -36,20 +36,23 @@ use tracing::{debug, info as tracing_info, info_span};
 use types::{
     ibc_core::{
         ics02_client::{
-            create_client::{MsgCreateClient, CREATE_CLIENT_TYPE_URL}, header::AnyHeader, height::Height,
+            create_client::{MsgCreateClient, CREATE_CLIENT_TYPE_URL},
+            header::AnyHeader,
+            height::Height,
             update_client::MsgUpdateClient,
         },
         ics03_connection::{
             connection::{ConnectionEnd, State},
             version::Version,
         },
+        ics04_channel::channel::ChannelEnd,
         ics23_commitment::{
             commitment::{CommitmentPrefix, CommitmentProofBytes},
             merkle_tree::MerkleProof,
             specs::ProofSpecs,
         },
         ics24_host::{
-            identifier::{chain_version, ChainId, ClientId, ConnectionId},
+            identifier::{chain_version, ChainId, ChannelId, ClientId, ConnectionId, PortId},
             path::{ClientConsensusStatePath, IBC_QUERY_PATH},
         },
     },
@@ -146,10 +149,8 @@ impl CosmosChain {
         let chain_config = self.config.clone();
         let key_account = self.account();
 
-        let account_detail = query_detail_account(
-            &mut grpc_query_client,
-            key_account.address().as_str(),
-        ).await?;
+        let account_detail =
+            query_detail_account(&mut grpc_query_client, key_account.address().as_str()).await?;
 
         let memo = Memo::new(self.config.memo_prefix.clone()).map_err(Error::memo)?;
         let msg_batches =
@@ -169,7 +170,8 @@ impl CosmosChain {
                 &key_account,
                 &memo,
                 &msg_batch,
-            ).await?;
+            )
+            .await?;
 
             ibc_events_with_height.extend(tx_results.events);
         }
@@ -294,15 +296,11 @@ impl CosmosChain {
     }
 
     pub async fn grpc_connection_client(&self) -> ConnectionQueryClient<Channel> {
-        grpc::connect::grpc_connection_client(
-            &self.config.grpc_addr,
-        ).await
+        grpc::connect::grpc_connection_client(&self.config.grpc_addr).await
     }
 
     pub async fn grpc_tx_sevice_client(&self) -> TxServiceClient<Channel> {
-        grpc::connect::grpc_tx_service_client(
-            &self.config.grpc_addr,
-        ).await
+        grpc::connect::grpc_tx_service_client(&self.config.grpc_addr).await
     }
 
     pub async fn query_abci_info(&mut self) -> Result<Info, Error> {
@@ -324,7 +322,20 @@ impl CosmosChain {
             connection_id,
             height_query,
             prove,
-        ).await
+        )
+        .await
+    }
+
+    pub async fn query_channel(
+        &self,
+        channel_id: &ChannelId,
+        port_id: &PortId,
+        height_query: QueryHeight,
+        prove: bool,
+    ) -> Result<(ChannelEnd, Option<MerkleProof>), Error> {
+        let mut trpc_client = self.tendermint_rpc_client();
+        grpc::channel::query_channel(&mut trpc_client, channel_id, port_id, height_query, prove)
+            .await
     }
 
     pub async fn query_detail_account_by_address(
@@ -334,10 +345,7 @@ impl CosmosChain {
         let mut grpc_client = self.grpc_auth_client().await;
         trace!("query detail account by address");
 
-        grpc::account::query_detail_account(
-            &mut grpc_client,
-            account_addr,
-        ).await
+        grpc::account::query_detail_account(&mut grpc_client, account_addr).await
     }
 
     pub async fn query_all_accounts(&self) -> Result<Vec<BaseAccount>, Error> {
@@ -504,8 +512,9 @@ impl CosmosChain {
         client_id: &ClientId,
         height: Height,
     ) -> Result<(Option<ClientState>, Proofs), Error> {
-        let (connection_end, maybe_connection_proof) =
-            self.query_connection(connection_id, QueryHeight::Specific(height), true).await?;
+        let (connection_end, maybe_connection_proof) = self
+            .query_connection(connection_id, QueryHeight::Specific(height), true)
+            .await?;
 
         let Some(connection_proof) = maybe_connection_proof else {
             return Err(Error::empty_response_proof());
@@ -597,6 +606,34 @@ impl CosmosChain {
             )
             .map_err(Error::proof_error)?,
         ))
+    }
+
+    pub async fn build_channel_proofs(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+        height: Height,
+    ) -> Result<Proofs, Error> {
+        let (_, mp) = self
+            .query_channel(channel_id, port_id, QueryHeight::Specific(height), true)
+            .await?;
+
+        if let Some(channel_proof) = mp {
+            let channel_proof_bytes =
+                CommitmentProofBytes::try_from(channel_proof).map_err(Error::commitment_error)?;
+
+            Proofs::new(
+                channel_proof_bytes,
+                None,
+                None,
+                None,
+                None,
+                height.increment(),
+            )
+            .map_err(Error::proof_error)
+        } else {
+            return Err(Error::empty_response_proof());
+        }
     }
 
     pub async fn adjust_headers(
@@ -757,7 +794,7 @@ pub mod chain_tests {
     use std::str::FromStr;
 
     use log::info;
-    use types::ibc_core::ics24_host::identifier::{ClientId, ConnectionId};
+    use types::ibc_core::ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId};
 
     use crate::common::QueryHeight;
 
@@ -857,7 +894,8 @@ pub mod chain_tests {
             .block_on(cosmos_chain.build_update_client_own(&client_id, target_height))
             .expect("build update client error!");
 
-        let update_client_result = rt.block_on(cosmos_chain.send_messages_and_wait_commit(update_client_msgs));
+        let update_client_result =
+            rt.block_on(cosmos_chain.send_messages_and_wait_commit(update_client_msgs));
 
         match update_client_result {
             Ok(event) => println!("Event: {:?}", event),
@@ -873,12 +911,31 @@ pub mod chain_tests {
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = cosmos_chain.rt.clone();
-        let connnectuon_id = ConnectionId::from_str("connection-1").expect("connection id error!");
+        let connection_id = ConnectionId::from_str("connection-1").expect("connection id error!");
         let connection_result =
-            rt.block_on(cosmos_chain.query_connection(&connnectuon_id, QueryHeight::Latest, true));
+            rt.block_on(cosmos_chain.query_connection(&connection_id, QueryHeight::Latest, true));
 
         match connection_result {
             Ok((connnection, _)) => println!("connection: {:?}", connnection),
+            Err(e) => panic!("{}", e),
+        }
+    }
+
+    #[test]
+    pub fn query_channel_works() {
+        init();
+        let file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
+
+        let rt = cosmos_chain.rt.clone();
+        let channel_id = ChannelId::from_str("channel-0").expect("channel id error!");
+        let port_id = PortId::from_str("transfer").unwrap();
+        let channel_result =
+            rt.block_on(cosmos_chain.query_channel(&channel_id, &port_id, QueryHeight::Latest, true));
+
+        match channel_result {
+            Ok((channel, _)) => println!("channel: {:?}", channel),
             Err(e) => panic!("{}", e),
         }
     }

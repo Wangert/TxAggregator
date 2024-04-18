@@ -12,6 +12,7 @@ use tonic::metadata::errors::InvalidMetadataValue;
 use tonic::{transport::Error as TransportError, Status as GrpcStatus};
 use types::error::TypesError;
 use types::ibc_core::ics03_connection::error::ConnectionError;
+use types::ibc_core::ics04_channel::error::ChannelError;
 use types::ibc_core::ics23_commitment::error::CommitmentError;
 use types::ibc_core::ics24_host::identifier::ConnectionId;
 use types::ibc_events::IbcEvent;
@@ -195,6 +196,17 @@ define_error! {
             |_| { "connectuon state error" },
         BadConnectionState
             |_| { "bad connection state" },
+        ConnectionHandshkeAbnormal
+            |_| { "connection handshake abnormal" },
+
+        // channel
+        ChannelCompleted
+            |_| { "channel completed" },
+        ChannelHandshkeAbnormal
+            |_| { "channel handshake abnormal" },
+        ChannelError
+            [ TraceError<ChannelError> ]
+            |e| { format!("channel error: {}", e) },
         
         // tx
         Tx 

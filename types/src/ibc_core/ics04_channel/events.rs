@@ -662,3 +662,14 @@ impl From<TimeoutOnClosePacket> for IbcEvent {
         IbcEvent::TimeoutOnClosePacket(v)
     }
 }
+
+pub fn extract_channel_id(event: &IbcEvent) -> Result<&ChannelId, ChannelError> {
+    match event {
+        IbcEvent::OpenInitChannel(ev) => ev.channel_id(),
+        IbcEvent::OpenTryChannel(ev) => ev.channel_id(),
+        IbcEvent::OpenAckChannel(ev) => ev.channel_id(),
+        IbcEvent::OpenConfirmChannel(ev) => ev.channel_id(),
+        _ => None,
+    }
+    .ok_or_else(|| ChannelError::missing_channel_id_from_event())
+}

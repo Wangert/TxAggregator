@@ -16,3 +16,4 @@ pub mod common;
 pub mod light_client;
 pub mod validate;
 pub mod event_pool;
+pub mod channel;
