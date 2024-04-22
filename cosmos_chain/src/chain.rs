@@ -13,6 +13,7 @@ use ibc_proto::{
     },
     google::protobuf::Any,
     ibc::core::{
+        channel::v1::query_client::QueryClient,
         client::v1::{
             query_client::QueryClient as IbcClientQueryClient,
             MsgCreateClient as IbcMsgCreateClient,
@@ -45,7 +46,10 @@ use types::{
             connection::{ConnectionEnd, State},
             version::Version,
         },
-        ics04_channel::channel::ChannelEnd,
+        ics04_channel::{
+            channel::ChannelEnd,
+            packet::{Packet, RecvPacket, Sequence},
+        },
         ics23_commitment::{
             commitment::{CommitmentPrefix, CommitmentProofBytes},
             merkle_tree::MerkleProof,
@@ -64,6 +68,7 @@ use types::{
     },
     message::Msg,
     proofs::{ConsensusProof, Proofs},
+    signer::Signer,
 };
 use utils::encode::protobuf;
 
@@ -303,9 +308,69 @@ impl CosmosChain {
         grpc::connect::grpc_tx_service_client(&self.config.grpc_addr).await
     }
 
+    pub async fn grpc_channel_client(&self) -> QueryClient<Channel> {
+        grpc::connect::grpc_channel_client(&self.config.grpc_addr).await
+    }
+
     pub async fn query_abci_info(&mut self) -> Result<Info, Error> {
         let mut trpc = self.tendermint_rpc_client();
         trpc::abci::abci_info(&mut trpc).await
+    }
+
+    pub async fn query_packet_commitment(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+        sequence: &Sequence,
+        height_query: QueryHeight,
+        prove: bool,
+    ) -> Result<(Vec<u8>, Option<MerkleProof>), Error> {
+        let mut trpc_client = self.tendermint_rpc_client();
+        trpc::packet::query_packet_commitment(
+            &mut trpc_client,
+            channel_id,
+            port_id,
+            sequence,
+            height_query,
+            prove,
+        )
+        .await
+    }
+
+    pub async fn query_packet_acknowledgement(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+        sequence: &Sequence,
+        height_query: QueryHeight,
+        prove: bool,
+    ) -> Result<(Vec<u8>, Option<MerkleProof>), Error> {
+        let mut trpc_client = self.tendermint_rpc_client();
+        trpc::packet::query_packet_acknowledgement(
+            &mut trpc_client,
+            channel_id,
+            port_id,
+            sequence,
+            height_query,
+            prove,
+        )
+        .await
+    }
+
+    pub async fn query_unreceived_packets(
+        &self,
+        port_id: &PortId,
+        channel_id: &ChannelId,
+        sequences: Vec<Sequence>,
+    ) -> Result<Vec<Sequence>, Error> {
+        let mut grpc_client = self.grpc_channel_client().await;
+        grpc::packet::query_unreceived_packets(
+            &mut grpc_client,
+            port_id.clone(),
+            channel_id.clone(),
+            sequences,
+        )
+        .await
     }
 
     pub async fn query_connection(
@@ -503,6 +568,39 @@ impl CosmosChain {
                 .find(|h| h < &target_height)
                 .ok_or_else(Error::missing_smaller_trusted_height)
         }
+    }
+
+    pub async fn build_recv_packet(
+        &self,
+        packet: &Packet,
+        target_signer: Signer,
+        height: Height,
+    ) -> Result<Vec<Any>, Error> {
+        let (_, proof) = self
+            .query_packet_commitment(
+                &packet.source_port,
+                &packet.source_channel,
+                &packet.sequence,
+                QueryHeight::Latest,
+                true,
+            )
+            .await?;
+
+        let packet_proof = proof.ok_or_else(|| Error::empty_response_proof())?;
+
+        let proofs = Proofs::new(
+            CommitmentProofBytes::try_from(packet_proof).map_err(Error::commitment_error)?,
+            None,
+            None,
+            None,
+            None,
+            height.increment(),
+        )
+        .map_err(Error::proof_error)?;
+
+        let recv_packet = RecvPacket::new(packet.clone(), proofs, target_signer);
+
+        Ok(vec![recv_packet.to_any()])
     }
 
     pub async fn build_connection_proofs_and_client_state(
@@ -931,8 +1029,12 @@ pub mod chain_tests {
         let rt = cosmos_chain.rt.clone();
         let channel_id = ChannelId::from_str("channel-0").expect("channel id error!");
         let port_id = PortId::from_str("transfer").unwrap();
-        let channel_result =
-            rt.block_on(cosmos_chain.query_channel(&channel_id, &port_id, QueryHeight::Latest, true));
+        let channel_result = rt.block_on(cosmos_chain.query_channel(
+            &channel_id,
+            &port_id,
+            QueryHeight::Latest,
+            true,
+        ));
 
         match channel_result {
             Ok((channel, _)) => println!("channel: {:?}", channel),

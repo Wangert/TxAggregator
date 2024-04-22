@@ -1,11 +1,101 @@
 use std::str::FromStr;
 
+use ibc_proto::Protobuf;
 use serde::{Deserialize, Serialize};
 
-use crate::{error::TypesError, ibc_core::{ics02_client::height::Height, ics24_host::identifier::{ChannelId, PortId}}, timestamp::Timestamp};
-use crate::timestamp::Expiry::Expired;
+use ibc_proto::ibc::core::channel::v1::MsgRecvPacket as RawMsgRecvPacket;
+use ibc_proto::ibc::core::channel::v1::Packet as RawPacket;
 
-use super::timeout::TimeoutHeight;
+use crate::timestamp::Expiry::Expired;
+use crate::{
+    error::TypesError,
+    ibc_core::{
+        ics02_client::height::Height,
+        ics24_host::identifier::{ChannelId, PortId},
+    },
+    message::Msg,
+    proofs::Proofs,
+    signer::Signer,
+    timestamp::Timestamp,
+};
+
+use super::{error::ChannelError, message::ROUTER_KEY, timeout::TimeoutHeight};
+
+pub const TYPE_URL: &str = "/ibc.core.channel.v1.MsgRecvPacket";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecvPacket {
+    pub packet: Packet,
+    pub proofs: Proofs,
+    pub signer: Signer,
+}
+
+impl RecvPacket {
+    pub fn new(packet: Packet, proofs: Proofs, signer: Signer) -> Self {
+        Self {
+            packet,
+            proofs,
+            signer,
+        }
+    }
+}
+
+impl Msg for RecvPacket {
+    type ValidationError = TypesError;
+    type Raw = RawMsgRecvPacket;
+
+    fn route(&self) -> String {
+        ROUTER_KEY.to_string()
+    }
+
+    fn type_url(&self) -> String {
+        TYPE_URL.to_string()
+    }
+}
+
+impl Protobuf<RawMsgRecvPacket> for RecvPacket {}
+
+impl TryFrom<RawMsgRecvPacket> for RecvPacket {
+    type Error = TypesError;
+
+    fn try_from(raw_msg: RawMsgRecvPacket) -> Result<Self, Self::Error> {
+        let proofs = Proofs::new(
+            raw_msg
+                .proof_commitment
+                .try_into()
+                .map_err(TypesError::commitment_error)?,
+            None,
+            None,
+            None,
+            None,
+            raw_msg
+                .proof_height
+                .and_then(|raw_height| raw_height.try_into().ok())
+                .ok_or_else(|| TypesError::channel_error(ChannelError::missing_height()))?,
+        )
+        .map_err(TypesError::proof_error)?;
+
+        Ok(RecvPacket {
+            packet: raw_msg
+                .packet
+                .ok_or_else(|| TypesError::channel_error(ChannelError::missing_packet()))?
+                .try_into()?,
+            proofs,
+            signer: raw_msg.signer.parse().map_err(TypesError::signer)?,
+        })
+    }
+}
+
+impl From<RecvPacket> for RawMsgRecvPacket {
+    fn from(recv_packet: RecvPacket) -> Self {
+        RawMsgRecvPacket {
+            packet: Some(recv_packet.packet.into()),
+            proof_commitment: recv_packet.proofs.object_proof().clone().into(),
+            proof_height: Some(recv_packet.proofs.height().into()),
+            signer: recv_packet.signer.to_string(),
+        }
+    }
+}
 
 #[derive(Clone, Default, Hash, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Packet {
@@ -61,19 +151,6 @@ impl core::fmt::Debug for Packet {
 }
 
 impl Packet {
-    /// Checks whether a packet from a
-    /// [`SendPacket`](crate::core::ics04_channel::events::SendPacket)
-    /// event is timed-out relative to the current state of the
-    /// destination chain.
-    ///
-    /// Checks both for time-out relative to the destination chain's
-    /// current timestamp `dst_chain_ts` as well as relative to
-    /// the height `dst_chain_height`.
-    ///
-    /// Note: a timed-out packet should result in a
-    /// [`MsgTimeout`](crate::core::ics04_channel::msgs::timeout::MsgTimeout),
-    /// instead of the common-case where it results in
-    /// [`MsgRecvPacket`](crate::core::ics04_channel::msgs::recv_packet::MsgRecvPacket).
     pub fn timed_out(&self, dst_chain_ts: &Timestamp, dst_chain_height: Height) -> bool {
         let height_timed_out = self.timeout_height.has_expired(dst_chain_height);
 
@@ -98,6 +175,65 @@ impl core::fmt::Display for Packet {
             self.timeout_height,
             self.timeout_timestamp
         )
+    }
+}
+
+impl TryFrom<RawPacket> for Packet {
+    type Error = TypesError;
+
+    fn try_from(raw_pkt: RawPacket) -> Result<Self, Self::Error> {
+        if Sequence::from(raw_pkt.sequence).is_zero() {
+            return Err(TypesError::channel_error(
+                ChannelError::zero_packet_sequence(),
+            ));
+        }
+
+        let packet_timeout_height: TimeoutHeight = raw_pkt.timeout_height.try_into()?;
+
+        if raw_pkt.data.is_empty() {
+            return Err(TypesError::channel_error(ChannelError::zero_packet_data()));
+        }
+
+        let timeout_timestamp = Timestamp::from_nanoseconds(raw_pkt.timeout_timestamp)
+            .map_err(|e| TypesError::channel_error(ChannelError::invalid_packet_timestamp(e)))?;
+
+        Ok(Packet {
+            sequence: Sequence::from(raw_pkt.sequence),
+            source_port: raw_pkt
+                .source_port
+                .parse()
+                .map_err(TypesError::identifier_error)?,
+            source_channel: raw_pkt
+                .source_channel
+                .parse()
+                .map_err(TypesError::identifier_error)?,
+            destination_port: raw_pkt
+                .destination_port
+                .parse()
+                .map_err(TypesError::identifier_error)?,
+            destination_channel: raw_pkt
+                .destination_channel
+                .parse()
+                .map_err(TypesError::identifier_error)?,
+            data: raw_pkt.data,
+            timeout_height: packet_timeout_height,
+            timeout_timestamp,
+        })
+    }
+}
+
+impl From<Packet> for RawPacket {
+    fn from(packet: Packet) -> Self {
+        RawPacket {
+            sequence: packet.sequence.0,
+            source_port: packet.source_port.to_string(),
+            source_channel: packet.source_channel.to_string(),
+            destination_port: packet.destination_port.to_string(),
+            destination_channel: packet.destination_channel.to_string(),
+            data: packet.data,
+            timeout_height: packet.timeout_height.into(),
+            timeout_timestamp: packet.timeout_timestamp.nanoseconds(),
+        }
     }
 }
 

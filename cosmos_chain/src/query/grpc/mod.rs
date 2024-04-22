@@ -4,3 +4,4 @@ pub mod connect;
 pub mod consensus;
 pub mod connection;
 pub mod channel;
+pub mod packet;

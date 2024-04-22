@@ -993,7 +993,6 @@ impl Channel {
             .await?;
 
         // Check if a channel is expected to exist on target chain
-        // A channel must exist on target chain for Ack and Confirm Tx-es to succeed
         if dst_channel.state_matches(&State::Uninitialized) {
             return Err(Error::channel_error(
                 ChannelError::missing_channel_on_target(),
