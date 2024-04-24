@@ -1,10 +1,13 @@
+use derive_more::{From, Into};
 use std::str::FromStr;
 
 use ibc_proto::Protobuf;
 use serde::{Deserialize, Serialize};
 
-use ibc_proto::ibc::core::channel::v1::MsgRecvPacket as RawMsgRecvPacket;
 use ibc_proto::ibc::core::channel::v1::Packet as RawPacket;
+use ibc_proto::ibc::core::channel::v1::{
+    MsgAcknowledgement as RawMsgAcknowledgement, MsgRecvPacket as RawMsgRecvPacket,
+};
 
 use crate::timestamp::Expiry::Expired;
 use crate::{
@@ -21,7 +24,8 @@ use crate::{
 
 use super::{error::ChannelError, message::ROUTER_KEY, timeout::TimeoutHeight};
 
-pub const TYPE_URL: &str = "/ibc.core.channel.v1.MsgRecvPacket";
+pub const RECV_PACKET_TYPE_URL: &str = "/ibc.core.channel.v1.MsgRecvPacket";
+pub const ACK_PACKET_TYPE_URL: &str = "/ibc.core.channel.v1.MsgAcknowledgement";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecvPacket {
@@ -49,7 +53,7 @@ impl Msg for RecvPacket {
     }
 
     fn type_url(&self) -> String {
-        TYPE_URL.to_string()
+        RECV_PACKET_TYPE_URL.to_string()
     }
 }
 
@@ -93,6 +97,116 @@ impl From<RecvPacket> for RawMsgRecvPacket {
             proof_commitment: recv_packet.proofs.object_proof().clone().into(),
             proof_height: Some(recv_packet.proofs.height().into()),
             signer: recv_packet.signer.to_string(),
+        }
+    }
+}
+
+/// A generic Acknowledgement type that modules may interpret as they like.
+#[derive(Clone, Debug, PartialEq, Eq, From, Into)]
+pub struct Acknowledgement(Vec<u8>);
+
+impl Acknowledgement {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl AsRef<[u8]> for Acknowledgement {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+}
+
+///
+/// Message definition for packet acknowledgements.
+///
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MsgAcknowledgement {
+    pub packet: Packet,
+    pub acknowledgement: Acknowledgement,
+    pub proofs: Proofs,
+    pub signer: Signer,
+}
+
+impl MsgAcknowledgement {
+    pub fn new(
+        packet: Packet,
+        acknowledgement: Acknowledgement,
+        proofs: Proofs,
+        signer: Signer,
+    ) -> MsgAcknowledgement {
+        Self {
+            packet,
+            acknowledgement,
+            proofs,
+            signer,
+        }
+    }
+
+    pub fn acknowledgement(&self) -> &Acknowledgement {
+        &self.acknowledgement
+    }
+
+    pub fn proofs(&self) -> &Proofs {
+        &self.proofs
+    }
+}
+
+impl Msg for MsgAcknowledgement {
+    type ValidationError = TypesError;
+    type Raw = RawMsgAcknowledgement;
+
+    fn route(&self) -> String {
+        ROUTER_KEY.to_string()
+    }
+
+    fn type_url(&self) -> String {
+        ACK_PACKET_TYPE_URL.to_string()
+    }
+}
+
+impl Protobuf<RawMsgAcknowledgement> for MsgAcknowledgement {}
+
+impl TryFrom<RawMsgAcknowledgement> for MsgAcknowledgement {
+    type Error = TypesError;
+
+    fn try_from(raw_msg: RawMsgAcknowledgement) -> Result<Self, Self::Error> {
+        let proofs = Proofs::new(
+            raw_msg
+                .proof_acked
+                .try_into()
+                .map_err(TypesError::commitment_error)?,
+            None,
+            None,
+            None,
+            None,
+            raw_msg
+                .proof_height
+                .and_then(|raw_height| raw_height.try_into().ok())
+                .ok_or_else(|| TypesError::channel_error(ChannelError::missing_height()))?,
+        )
+        .map_err(TypesError::proof_error)?;
+
+        Ok(MsgAcknowledgement {
+            packet: raw_msg
+                .packet
+                .ok_or_else(|| TypesError::channel_error(ChannelError::missing_packet()))?
+                .try_into()?,
+            acknowledgement: raw_msg.acknowledgement.into(),
+            signer: raw_msg.signer.parse().map_err(TypesError::signer)?,
+            proofs,
+        })
+    }
+}
+
+impl From<MsgAcknowledgement> for RawMsgAcknowledgement {
+    fn from(domain_msg: MsgAcknowledgement) -> Self {
+        RawMsgAcknowledgement {
+            packet: Some(domain_msg.packet.into()),
+            acknowledgement: domain_msg.acknowledgement.into(),
+            signer: domain_msg.signer.to_string(),
+            proof_height: Some(domain_msg.proofs.height().into()),
+            proof_acked: domain_msg.proofs.object_proof().clone().into(),
         }
     }
 }

@@ -106,5 +106,20 @@ define_error! {
         InvalidPacketTimestamp
             [ ParseTimestampError ]
             | _ | { "Invalid packet timeout timestamp value" },
+        InvalidPacketData
+            {
+                data: String,
+            }
+            | e | {
+                format_args!("Invalid packet data, not a valid hex-encoded string: {}", e.data)
+            },
+        InvalidStringAsSequence
+            { value: String }
+            [ TraceError<core::num::ParseIntError> ]
+            | e | {
+                format_args!(
+                    "String {0} cannot be converted to packet sequence",
+                    e.value)
+            },
     }
 }

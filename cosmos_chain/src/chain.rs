@@ -48,7 +48,8 @@ use types::{
         },
         ics04_channel::{
             channel::ChannelEnd,
-            packet::{Packet, RecvPacket, Sequence},
+            events::WriteAcknowledgement,
+            packet::{MsgAcknowledgement, Packet, RecvPacket, Sequence},
         },
         ics23_commitment::{
             commitment::{CommitmentPrefix, CommitmentProofBytes},
@@ -570,6 +571,7 @@ impl CosmosChain {
         }
     }
 
+    // Built from the generating end of an event
     pub async fn build_recv_packet(
         &self,
         packet: &Packet,
@@ -601,6 +603,45 @@ impl CosmosChain {
         let recv_packet = RecvPacket::new(packet.clone(), proofs, target_signer);
 
         Ok(vec![recv_packet.to_any()])
+    }
+
+    // Built from the generating end of an event
+    pub async fn build_ack_packet(
+        &self,
+        write_ack: &WriteAcknowledgement,
+        height: &Height,
+        target_signer: Signer,
+    ) -> Result<Vec<Any>, Error> {
+        let (_, proof) = self
+            .query_packet_acknowledgement(
+                write_ack.dst_port_id(),
+                write_ack.dst_channel_id(),
+                write_ack.sequence(),
+                QueryHeight::Latest,
+                true,
+            )
+            .await?;
+
+        let packet_proof = proof.ok_or_else(|| Error::empty_response_proof())?;
+
+        let proofs = Proofs::new(
+            CommitmentProofBytes::try_from(packet_proof).map_err(Error::commitment_error)?,
+            None,
+            None,
+            None,
+            None,
+            height.increment(),
+        )
+        .map_err(Error::proof_error)?;
+
+        let ack_packet = MsgAcknowledgement::new(
+            write_ack.packet.clone(),
+            write_ack.ack.clone().into(),
+            proofs,
+            target_signer,
+        );
+
+        Ok(vec![ack_packet.to_any()])
     }
 
     pub async fn build_connection_proofs_and_client_state(

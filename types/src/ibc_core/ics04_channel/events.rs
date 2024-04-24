@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use tendermint::abci;
 use utils::pretty::PrettySlice;
 
-use crate::{error::TypesError, ibc_core::ics24_host::identifier::{ChannelId, ConnectionId, PortId}, ibc_events::{IbcEvent, IbcEventType}};
+use crate::{error::TypesError, ibc_core::{ics02_client::height::{self, Height}, ics24_host::identifier::{ChannelId, ConnectionId, PortId}}, ibc_events::{IbcEvent, IbcEventType}};
 
-use super::{error::ChannelError, packet::Packet};
+use super::{error::ChannelError, packet::{Packet, Sequence}};
 
 /// Channel event attribute keys
 pub const CONNECTION_ID_ATTRIBUTE_KEY: &str = "connection_id";
@@ -553,6 +553,9 @@ impl WriteAcknowledgement {
     }
     pub fn dst_channel_id(&self) -> &ChannelId {
         &self.packet.destination_channel
+    }
+    pub fn sequence(&self) -> &Sequence {
+        &self.packet.sequence
     }
 }
 
