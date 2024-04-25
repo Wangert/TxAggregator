@@ -34,7 +34,7 @@ impl EventSubscriptions {
         // let url =  WebSocketClientUrl::from_str("ws://127.0.0.1:26657/websocket").unwrap();
         // let (client, driver) = rt.block_on(WebSocketClient::builder(url).build()).expect("build error!");
         let (client, driver) = rt
-            .block_on(WebSocketClient::new("ws://127.0.0.1:26657/websocket"))
+            .block_on(WebSocketClient::new("ws://10.176.35.58:26656/websocket"))
             .expect("build error!");
         let driver_handle = rt.spawn(async move { driver.run().await.unwrap() });
 

@@ -95,7 +95,7 @@ pub mod query_grpc_account_tests {
     #[test]
     pub fn query_all_acount_works() {
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "C:/Users/19721/Desktop/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
         let rt = cosmos_chain.rt.clone();
         let account = rt

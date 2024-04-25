@@ -213,7 +213,7 @@ pub mod abci_tests {
         let rt = tokio::runtime::Runtime::new().expect("runtime create error");
 
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+            "C:/Users/19721/Desktop/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let account = Secp256k1Account::new(
