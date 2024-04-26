@@ -17,3 +17,5 @@ pub mod light_client;
 pub mod validate;
 pub mod event_pool;
 pub mod channel;
+pub mod channel_pool;
+pub mod chain_manager;

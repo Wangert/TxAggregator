@@ -54,9 +54,9 @@ fn extract_events(
 
             for abci_event in &tx_result.result.events {
                 if let Ok(ibc_event) = ibc_event_try_from_abci_event(abci_event) {
-                    println!("EVENTEVENTVENTVENTVENTVENT");
-                    println!("{:?}", query);
-                    println!("{:?}", ibc_event);
+                    // println!("EVENTEVENTVENTVENTVENTVENT");
+                    // println!("{:?}", query);
+                    // println!("{:?}", ibc_event);
                     if query == event_source::ibc_client().to_string()
                         && event_is_type_client(&ibc_event)
                     {

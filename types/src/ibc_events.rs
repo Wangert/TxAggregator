@@ -459,10 +459,9 @@ pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent,
         Ok(IbcEventType::SendPacket) => Ok(IbcEvent::SendPacket(send_packet_try_from_abci_event(
             abci_event,
         )?)),
-        // Ok(IbcEventType::WriteAck) => Ok(IbcEvent::WriteAcknowledgement(
-        //     write_acknowledgement_try_from_abci_event(abci_event)
-        //         .map_err(IbcEventError::channel)?,
-        // )),
+        Ok(IbcEventType::WriteAck) => Ok(IbcEvent::WriteAcknowledgement(
+            write_acknowledgement_try_from_abci_event(abci_event)?,
+        )),
         // Ok(IbcEventType::AckPacket) => Ok(IbcEvent::AcknowledgePacket(
         //     acknowledge_packet_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
         // )),
@@ -484,11 +483,22 @@ pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent,
     }
 }
 
+pub fn write_acknowledgement_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ChannelEvents::WriteAcknowledgement, TypesError> {
+    extract_packet_and_write_ack_from_tx(abci_event).map(|(packet, write_ack)| {
+        ChannelEvents::WriteAcknowledgement {
+            packet,
+            ack: write_ack,
+        }
+    })
+}
+
 pub fn send_packet_try_from_abci_event(
     abci_event: &AbciEvent,
 ) -> Result<ChannelEvents::SendPacket, TypesError> {
     extract_packet_and_write_ack_from_tx(abci_event)
-        .map(|(packet, write_ack)| ChannelEvents::SendPacket { packet })
+        .map(|(packet, _write_ack)| ChannelEvents::SendPacket { packet })
 }
 
 pub fn extract_packet_and_write_ack_from_tx(

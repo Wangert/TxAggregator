@@ -101,7 +101,7 @@ pub struct CosmosChain {
     pub id: ChainId,
     pub config: CosmosChainConfig,
     pub account: Secp256k1Account,
-    pub rt: Arc<Runtime>,
+    // pub rt: Arc<Runtime>,
 }
 
 impl CosmosChain {
@@ -121,7 +121,7 @@ impl CosmosChain {
             id: ChainId::from_string(&config.chain_id),
             config: config,
             account,
-            rt: Arc::new(Runtime::new().expect("Cosmos chain runtime new error!")),
+            // rt: Arc::new(Runtime::new().expect("Cosmos chain runtime new error!")),
         }
     }
 
@@ -432,10 +432,12 @@ impl CosmosChain {
         grpc::staking::query_staking_params(&mut grpc_client).await
     }
 
-    pub fn query_block_header(&self, height: TendermintHeight) -> Result<TendermintHeader, Error> {
+    pub async fn query_block_header(
+        &self,
+        height: TendermintHeight,
+    ) -> Result<TendermintHeader, Error> {
         let mut trpc = self.tendermint_rpc_client();
-        self.rt
-            .block_on(trpc::block::detail_block_header(&mut trpc, height))
+        trpc::block::detail_block_header(&mut trpc, height).await
     }
 
     pub async fn query_latest_block(&self) -> Result<Block, Error> {
@@ -954,20 +956,21 @@ pub mod chain_tests {
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
 
-        let rt_a = cosmos_chain_a.rt.clone();
-        let rt_b = cosmos_chain_b.rt.clone();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        // let rt_a = cosmos_chain_a.rt.clone();
+        // let rt_b = cosmos_chain_b.rt.clone();
         let client_settings = cosmos_chain_a.client_settings(&cosmos_chain_b.config);
-        let client_state = rt_b
+        let client_state = rt
             .block_on(cosmos_chain_b.build_client_state(&client_settings))
             .expect("build client state error!");
-        let consensus_state = rt_b
+        let consensus_state = rt
             .block_on(cosmos_chain_b.build_consensus_state(&client_state))
             .expect("build consensus state error!");
-        let msgs = rt_a
+        let msgs = rt
             .block_on(cosmos_chain_a.build_create_client_msg(client_state, consensus_state))
             .expect("build create client msg error!");
 
-        let result = rt_a.block_on(cosmos_chain_a.send_messages_and_wait_commit(msgs));
+        let result = rt.block_on(cosmos_chain_a.send_messages_and_wait_commit(msgs));
 
         match result {
             Ok(events) => println!("Event: {:?}", events),
@@ -990,7 +993,9 @@ pub mod chain_tests {
             "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
 
-        let rt = cosmos_chain.rt.clone();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // let rt = cosmos_chain.rt.clone();
         let staking_params = rt
             .block_on(cosmos_chain.query_staking_params())
             .expect("query_staking_params error!");
@@ -1005,7 +1010,9 @@ pub mod chain_tests {
             "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
-        let rt = cosmos_chain.rt.clone();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // let rt = cosmos_chain.rt.clone();
         let client_id = ClientId::from_str("07-tendermint-7").expect("client id error!");
         let client_state_result =
             rt.block_on(cosmos_chain.query_client_state(&client_id, QueryHeight::Latest, true));
@@ -1023,7 +1030,9 @@ pub mod chain_tests {
             "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
-        let rt = cosmos_chain.rt.clone();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // let rt = cosmos_chain.rt.clone();
         let target_height = rt
             .block_on(cosmos_chain.query_latest_height())
             .expect("query latest height error!");
@@ -1046,10 +1055,12 @@ pub mod chain_tests {
     pub fn query_connection_works() {
         init();
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
-        let rt = cosmos_chain.rt.clone();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // let rt = cosmos_chain.rt.clone();
         let connection_id = ConnectionId::from_str("connection-1").expect("connection id error!");
         let connection_result =
             rt.block_on(cosmos_chain.query_connection(&connection_id, QueryHeight::Latest, true));
@@ -1067,7 +1078,9 @@ pub mod chain_tests {
             "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
-        let rt = cosmos_chain.rt.clone();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // let rt = cosmos_chain.rt.clone();
         let channel_id = ChannelId::from_str("channel-0").expect("channel id error!");
         let port_id = PortId::from_str("transfer").unwrap();
         let channel_result = rt.block_on(cosmos_chain.query_channel(

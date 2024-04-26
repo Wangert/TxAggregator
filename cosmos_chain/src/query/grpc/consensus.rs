@@ -92,7 +92,9 @@ pub mod grpc_consensus_tests {
 
         let client_id = ClientId::new("07-tendermint", 1).expect("client id new error!");
 
-        let rt = cosmos_chain.rt.clone();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // let rt = cosmos_chain.rt.clone();
         let heights = rt.block_on(
             grpc::consensus::query_all_consensus_state_heights(&mut grpc_client, client_id));
 

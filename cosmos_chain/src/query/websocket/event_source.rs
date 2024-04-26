@@ -7,10 +7,10 @@ pub fn new_event_source_query(key: &str, value: &str) -> Query {
 pub fn all_event_sources() -> Vec<Query> {
     vec![
         new_block(),
-        new_event_source_query("message.module", "ibc_client"),
+        ibc_client(),
         ibc_connection(),
         ibc_channel(),
-        transfer_query()
+        // transfer_query()
         // new_event_source_query("message.module", "ibc_client")
         //     .and_eq("message.action", "/ibc.core.client.v1.MsgCreateClient"),
         // new_event_source_query("message.action", "create_client"),
