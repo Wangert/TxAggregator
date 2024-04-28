@@ -134,6 +134,7 @@ pub async fn wait_for_tx_block_commit(
     tx_sync_response: &TxSyncResponse,
     msg_count: usize,
 ) -> Result<TxSyncResult, Error> {
+    println!("code: {:?}", tx_sync_response.code);
     if tx_sync_response.code.is_err() {
         Err(Error::tx_commit("tx sync response code is err".to_string()))
     } else {
@@ -291,7 +292,7 @@ pub mod tx_send_tests {
     #[test]
     pub fn send_tx_with_fee_wokrs() {
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let account = Secp256k1Account::new(

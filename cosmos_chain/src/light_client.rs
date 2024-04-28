@@ -228,7 +228,7 @@ pub mod light_client_tests {
     #[test]
     pub fn fetch_light_block_works() {
         let file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client =
@@ -263,7 +263,7 @@ pub mod light_client_tests {
     #[actix_rt::test]
     pub async fn asy_fecth_light_block_works() {
         let file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client =

@@ -109,7 +109,7 @@ pub mod grpc_consensus_tests {
         let rt = tokio::runtime::Runtime::new().expect("runtime create error");
 
         let file_path =
-            "/Users/joten/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let mut grpc_client = rt.block_on(grpc_ibcclient_client(&cosmos_chain.config.grpc_addr));
