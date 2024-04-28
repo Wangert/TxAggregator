@@ -13,7 +13,9 @@
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=cosmos_chain"
+                    "--package=cosmos_chain",
+                    "'--'",
+                    "--nocapture",
                 ],
                 "filter": {
                     "name": "cosmos_chain",

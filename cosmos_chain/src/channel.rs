@@ -993,7 +993,6 @@ impl Channel {
             .await?;
 
         // Check if a channel is expected to exist on target chain
-        // A channel must exist on target chain for Ack and Confirm Tx-es to succeed
         if dst_channel.state_matches(&State::Uninitialized) {
             return Err(Error::channel_error(
                 ChannelError::missing_channel_on_target(),
@@ -1023,9 +1022,9 @@ pub mod channel_tests {
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
     }
-
+ 
     #[test]
-    pub fn channel_handshake_works() {
+    pub fn channel_handshake_works() { 
         init();
         let a_file_path =
             "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
@@ -1037,20 +1036,20 @@ pub mod channel_tests {
 
         let channel_side_a = ChannelSide {
             chain: cosmos_chain_a,
-            client_id: ClientId::from_str("07-tendermint-12").unwrap(),
-            connection_id: ConnectionId::from_str("connection-8").unwrap(),
-            port_id: PortId::from_str("transfer").unwrap(),
+            client_id: ClientId::from_str("07-tendermint-13").unwrap(),
+            connection_id: ConnectionId::from_str("connection-9").unwrap(),
+            port_id: PortId::from_str("blog").unwrap(),
             channel_id: None,
-            version: Some(Version::default()),
+            version: Some(Version("blog-1".to_string())),
         };
 
         let channel_side_b = ChannelSide {
             chain: cosmos_chain_b,
-            client_id: ClientId::from_str("07-tendermint-6").unwrap(),
-            connection_id: ConnectionId::from_str("connection-5").unwrap(),
-            port_id: PortId::from_str("transfer").unwrap(),
+            client_id: ClientId::from_str("07-tendermint-7").unwrap(),
+            connection_id: ConnectionId::from_str("connection-6").unwrap(),
+            port_id: PortId::from_str("blog").unwrap(),
             channel_id: None,
-            version: Some(Version::default()),
+            version: Some(Version("blog-1".to_string())),
         };
 
         // let channel_side_a = ChannelSide {

@@ -233,8 +233,10 @@ pub mod light_client_tests {
 
         let mut trpc_client =
             trpc::connect::tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
-        let latest_block = cosmos_chain
-            .rt
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let latest_block = rt
             .block_on(trpc::block::latest_block(&mut trpc_client))
             .expect("latest block error!");
 
@@ -244,7 +246,6 @@ pub mod light_client_tests {
         )
         .expect("latest height error!");
 
-        let rt = cosmos_chain.rt.clone();
         let status = rt
             .block_on(cosmos_chain.query_tendermint_status())
             .expect("query tendermint status error");
@@ -267,8 +268,10 @@ pub mod light_client_tests {
 
         let mut trpc_client =
             trpc::connect::tendermint_rpc_client(&cosmos_chain.config.tendermint_rpc_addr);
-        let latest_block = cosmos_chain
-            .rt
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let latest_block = rt
             .block_on(trpc::block::latest_block(&mut trpc_client))
             .expect("latest block error");
 
@@ -278,7 +281,6 @@ pub mod light_client_tests {
         )
         .expect("latest height error!");
 
-        let rt = cosmos_chain.rt.clone();
         let status = rt
             .block_on(cosmos_chain.query_tendermint_status())
             .expect("query tendermint status error");

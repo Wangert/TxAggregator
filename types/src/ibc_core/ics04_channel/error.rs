@@ -1,6 +1,6 @@
 use flex_error::{define_error, TraceError};
 
-use crate::ibc_core::ics24_host::{error::IdentifierError, identifier::{ChannelId, PortId}};
+use crate::{ibc_core::ics24_host::{error::IdentifierError, identifier::{ChannelId, PortId}}, timestamp::ParseTimestampError};
 
 use tendermint_proto::Error as TendermintError;
 
@@ -102,5 +102,24 @@ define_error! {
             |e| { format_args!("channel '{}' already exist in an incompatible state", e.channel_id) },
         MissingChannelOnTarget
             |_| { "missing channel on target chain" },
+
+        InvalidPacketTimestamp
+            [ ParseTimestampError ]
+            | _ | { "Invalid packet timeout timestamp value" },
+        InvalidPacketData
+            {
+                data: String,
+            }
+            | e | {
+                format_args!("Invalid packet data, not a valid hex-encoded string: {}", e.data)
+            },
+        InvalidStringAsSequence
+            { value: String }
+            [ TraceError<core::num::ParseIntError> ]
+            | e | {
+                format_args!(
+                    "String {0} cannot be converted to packet sequence",
+                    e.value)
+            },
     }
 }

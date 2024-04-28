@@ -5,7 +5,7 @@ use ibc_proto::{
         staking::v1beta1::query_client::QueryClient as StakingQueryClient,
         tx::v1beta1::service_client::ServiceClient,
     },
-    ibc::core::{client::v1::query_client::QueryClient as IbcClientQueryClient, connection::v1::query_client::QueryClient as ConnectionQueryClient},
+    ibc::core::{channel::v1::query_client::QueryClient as ChannelQueryClient, client::v1::query_client::QueryClient as IbcClientQueryClient, connection::v1::query_client::QueryClient as ConnectionQueryClient},
 };
 use log::{info, trace};
 use tonic::transport::Channel;
@@ -80,4 +80,18 @@ pub async fn grpc_tx_service_client(grpc_addr: &str) -> ServiceClient<Channel> {
     info!("grpc tx service client connect success");
 
     tx_service_client.max_decoding_message_size(max_grpc_decoding_size().get_bytes() as usize)
+}
+
+pub async fn grpc_channel_client(grpc_addr: &str) -> ChannelQueryClient<Channel> {
+    trace!("grpc channel client connect");
+
+    let grpc_addr = grpc_addr.parse::<Uri>().expect("grpc address parse error!");
+    let channel_client = match ChannelQueryClient::connect(grpc_addr.clone()).await {
+        Ok(client) => client,
+        Err(e) => panic!("grpc channel client connect error: {:?}", e),
+    };
+
+    info!("grpc channel client connect success");
+
+    channel_client.max_decoding_message_size(max_grpc_decoding_size().get_bytes() as usize)
 }

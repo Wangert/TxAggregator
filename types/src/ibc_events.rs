@@ -7,10 +7,12 @@ use crate::ibc_core::ics02_client::height::Height;
 use crate::ibc_core::ics03_connection::events::{
     self as ConnectionEvents, Attributes as ConnectionAttributes,
 };
+use crate::ibc_core::ics04_channel::error::ChannelError;
 use crate::ibc_core::ics04_channel::events::{
     self as ChannelEvents, Attributes as ChannelAttributes,
 };
 use crate::ibc_core::ics04_channel::packet::Packet;
+use crate::ibc_core::ics04_channel::timeout::TimeoutHeight;
 use flex_error::{define_error, TraceError};
 use ibc_proto::google::protobuf::field_descriptor_proto::Type;
 use serde::{Deserialize, Serialize};
@@ -403,8 +405,8 @@ impl IbcEvent {
 }
 
 pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent, TypesError> {
-    //    println!("QQQQQQQQQQQQQQQQQQQQQ");
-    //    println!("{:?}", abci_event);
+    // println!("QQQQQQQQQQQQQQQQQQQQQ");
+    // println!("{:?}", abci_event);
 
     match abci_event.kind.parse() {
         Ok(IbcEventType::CreateClient) => {
@@ -454,13 +456,12 @@ pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent,
         Ok(IbcEventType::CloseConfirmChannel) => Ok(IbcEvent::CloseConfirmChannel(
             channel_close_confirm_try_from_abci_event(abci_event)?,
         )),
-        // Ok(IbcEventType::SendPacket) => Ok(IbcEvent::SendPacket(
-        //     send_packet_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
-        // )),
-        // Ok(IbcEventType::WriteAck) => Ok(IbcEvent::WriteAcknowledgement(
-        //     write_acknowledgement_try_from_abci_event(abci_event)
-        //         .map_err(IbcEventError::channel)?,
-        // )),
+        Ok(IbcEventType::SendPacket) => Ok(IbcEvent::SendPacket(send_packet_try_from_abci_event(
+            abci_event,
+        )?)),
+        Ok(IbcEventType::WriteAck) => Ok(IbcEvent::WriteAcknowledgement(
+            write_acknowledgement_try_from_abci_event(abci_event)?,
+        )),
         // Ok(IbcEventType::AckPacket) => Ok(IbcEvent::AcknowledgePacket(
         //     acknowledge_packet_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
         // )),
@@ -480,6 +481,79 @@ pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent,
         // )),
         _ => Err(TypesError::unsupported_abci_event(abci_event.kind.clone())),
     }
+}
+
+pub fn write_acknowledgement_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ChannelEvents::WriteAcknowledgement, TypesError> {
+    extract_packet_and_write_ack_from_tx(abci_event).map(|(packet, write_ack)| {
+        ChannelEvents::WriteAcknowledgement {
+            packet,
+            ack: write_ack,
+        }
+    })
+}
+
+pub fn send_packet_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ChannelEvents::SendPacket, TypesError> {
+    extract_packet_and_write_ack_from_tx(abci_event)
+        .map(|(packet, _write_ack)| ChannelEvents::SendPacket { packet })
+}
+
+pub fn extract_packet_and_write_ack_from_tx(
+    event: &AbciEvent,
+) -> Result<(Packet, Vec<u8>), TypesError> {
+    let mut packet = Packet::default();
+    let mut write_ack: Vec<u8> = Vec::new();
+
+    for tag in &event.attributes {
+        let key = tag.key.as_str();
+        let value = tag.value.as_str();
+
+        match key {
+            ChannelEvents::PKT_SRC_PORT_ATTRIBUTE_KEY => {
+                packet.source_port = value.parse().map_err(TypesError::identifier_error)?;
+            }
+            ChannelEvents::PKT_SRC_CHANNEL_ATTRIBUTE_KEY => {
+                packet.source_channel = value.parse().map_err(TypesError::identifier_error)?;
+            }
+            ChannelEvents::PKT_DST_PORT_ATTRIBUTE_KEY => {
+                packet.destination_port = value.parse().map_err(TypesError::identifier_error)?;
+            }
+            ChannelEvents::PKT_DST_CHANNEL_ATTRIBUTE_KEY => {
+                packet.destination_channel = value.parse().map_err(TypesError::identifier_error)?;
+            }
+            ChannelEvents::PKT_SEQ_ATTRIBUTE_KEY => {
+                packet.sequence = value
+                    .parse::<u64>()
+                    .map_err(|e| {
+                        TypesError::channel_error(ChannelError::invalid_string_as_sequence(
+                            value.to_string(),
+                            e,
+                        ))
+                    })?
+                    .into()
+            }
+            ChannelEvents::PKT_TIMEOUT_HEIGHT_ATTRIBUTE_KEY => {
+                packet.timeout_height = parse_timeout_height(value)?;
+            }
+            ChannelEvents::PKT_TIMEOUT_TIMESTAMP_ATTRIBUTE_KEY => {
+                packet.timeout_timestamp = value.parse().unwrap();
+            }
+            ChannelEvents::PKT_DATA_ATTRIBUTE_KEY => {
+                packet.data = hex::decode(value.to_lowercase()).map_err(|_| {
+                    TypesError::channel_error(ChannelError::invalid_packet_data(value.to_string()))
+                })?;
+            }
+            ChannelEvents::PKT_ACK_ATTRIBUTE_KEY => {
+                write_ack = Vec::from(value.as_bytes());
+            }
+            _ => {}
+        }
+    }
+
+    Ok((packet, write_ack))
 }
 
 pub fn create_client_try_from_abci_event(
@@ -623,11 +697,15 @@ pub fn channel_open_confirm_try_from_abci_event(
     extract_attributes_from_channel_event(abci_event).map(ChannelEvents::OpenConfirm::try_from)?
 }
 
-pub fn channel_close_init_try_from_abci_event(abci_event: &AbciEvent,) -> Result<ChannelEvents::CloseInit, TypesError> {
+pub fn channel_close_init_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ChannelEvents::CloseInit, TypesError> {
     extract_attributes_from_channel_event(abci_event).map(ChannelEvents::CloseInit::try_from)?
 }
 
-pub fn channel_close_confirm_try_from_abci_event(abci_event: &AbciEvent,) -> Result<ChannelEvents::CloseConfirm, TypesError> {
+pub fn channel_close_confirm_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ChannelEvents::CloseConfirm, TypesError> {
     extract_attributes_from_channel_event(abci_event).map(ChannelEvents::CloseConfirm::try_from)?
 }
 
@@ -678,4 +756,14 @@ pub fn decode_attributes(
     }
 
     Ok(decoded_attributes)
+}
+
+pub fn parse_timeout_height(s: &str) -> Result<TimeoutHeight, TypesError> {
+    match s.parse::<Height>() {
+        Ok(height) => Ok(TimeoutHeight::from(height)),
+        Err(e) if e.to_string() == TypesError::zero_height().to_string() => {
+            Ok(TimeoutHeight::Never)
+        }
+        Err(e) => Err(e),
+    }
 }

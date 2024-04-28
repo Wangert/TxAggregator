@@ -136,7 +136,10 @@ define_error! {
             { payload_type: String }
             [ TraceError<UtilsEncodeError> ]
             |e| { format!("error encoding protocol buffer for {}", e.payload_type) },
-
+        UtilsEncodeError
+            { payload_type: String }
+            [ TraceError<UtilsEncodeError> ]
+            |e| { format!("error encoding for {}", e.payload_type) },
         // account
         HdPath
             { hd_path: String }
