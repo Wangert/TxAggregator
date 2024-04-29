@@ -414,7 +414,7 @@ pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent,
             let create_attributes = extract_attributes_from_client_event(abci_event)?;
             let create_client_event = ClientEvents::CreateClient(create_attributes);
 
-            println!("Create_Client_Event: {:?}", create_client_event);
+            // println!("Create_Client_Event: {:?}", create_client_event);
             Ok(IbcEvent::CreateClient(create_client_event))
         }
         Ok(IbcEventType::UpdateClient) => Ok(IbcEvent::UpdateClient(
@@ -582,7 +582,7 @@ fn extract_attributes_from_client_event(event: &AbciEvent) -> Result<ClientAttri
 
     // let decoded_attributes = decode_attributes(event.attributes.clone())?;
     let decoded_attributes = event.attributes.clone();
-    println!("extract: {:?}", decoded_attributes);
+    // println!("extract: {:?}", decoded_attributes);
 
     for tag in decoded_attributes {
         let key = tag.key.as_str();
@@ -648,7 +648,7 @@ fn extract_attributes_from_connection_event(
 
     // let decoded_attributes = decode_attributes(event.attributes.clone())?;
     let decoded_attributes = event.attributes.clone();
-    println!("extract: {:?}", decoded_attributes);
+    // println!("extract: {:?}", decoded_attributes);
 
     for tag in decoded_attributes {
         let key = tag.key.as_str();

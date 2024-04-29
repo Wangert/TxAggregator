@@ -3,7 +3,6 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::sleep;
 
 use crate::cmd::get_command_completer;
-use crate::cmd_matches::before_cmd_match;
 use crate::commons::CommandCompleter;
 use log::{error, info};
 use rustyline::completion::{Completer, Pair};
@@ -100,9 +99,8 @@ pub async fn run(args_sender: Sender<Vec<String>>) {
     println!("======================================================================================================================");
     // }
 
+    let p = "TxAggregator>> ".to_string();
     loop {
-        let mut p = "TxAggregator>> ".to_string();
-
         rl.helper_mut().expect("No helper").colored_prompt = format!("\x1b[1;32m{}\x1b[0m", p);
         let readline = rl.readline(&p);
         match readline {

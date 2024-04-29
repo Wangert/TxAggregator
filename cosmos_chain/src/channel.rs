@@ -120,15 +120,15 @@ pub struct Channel {
     pub connection_delay: Duration,
 }
 
-impl Display for Channel {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
-        write!(
-            f,
-            "Channel {{ ordering: {}, a_side: {}, b_side: {}, connection_delay: {:?} }}",
-            self.ordering, self.side_a, self.side_b, &self.connection_delay
-        )
-    }
-}
+// impl Display for Channel {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+//         write!(
+//             f,
+//             "Channel {{ ordering: {}, a_side: {}, b_side: {}, connection_delay: {:?} }}",
+//             self.ordering, self.side_a, self.side_b, &self.connection_delay
+//         )
+//     }
+// }
 
 impl Channel {
     pub fn new(
@@ -1003,6 +1003,28 @@ impl Channel {
             .map_err(Error::channel_error)?;
 
         Ok(dst_expected_channel)
+    }
+}
+
+impl Display for Channel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Source Chain:{{ chain_id: {}, channel_id: {:?}, client_id: {}, connection_id: {:?}, port_id: {}, version: {:?} }}\nTarget Chain:{{ chain_id: {}, channel_id: {:?}, client_id: {}, connection_id: {:?}, port_id: {}, version: {:?} }}",
+            self.side_a.chain().id(),
+            self.side_a.channel_id(),
+            self.side_a.client_id(),
+            self.side_a.connection_id(),
+            self.side_a.port_id(),
+            self.side_a.version(),
+            self.side_b.chain().id(),
+            self.side_b.channel_id(),
+            self.side_b.client_id(),
+            self.side_b.connection_id(),
+            self.side_b.port_id(),
+            self.side_b.version()
+        )
+        
     }
 }
 

@@ -1,6 +1,5 @@
 use clap::{ArgMatches, Command};
-
-use crate::cmd::rootcmd::CMD;
+use cli::cmd::rootcmd::CMD;
 
 pub fn before_cmd_match(args: Vec<String>) {
     match Command::try_get_matches_from(CMD.to_owned(), args.clone()) {

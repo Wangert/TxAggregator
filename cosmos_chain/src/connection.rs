@@ -1,4 +1,4 @@
-use std::{thread, time::Duration};
+use std::{fmt::Display, thread, time::Duration};
 
 use ibc_proto::google::protobuf::Any;
 use log::trace;
@@ -450,7 +450,7 @@ impl Connection {
         }
 
         println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-        println!("Connection Handshake Event: {:?}", ibc_event);
+        println!("Connection Handshake Event: {:#?}", ibc_event);
         // Err(Error::handshake_continue())
         Ok(ibc_event)
     }
@@ -533,14 +533,14 @@ impl Connection {
         info!("build_connection_open_init_and_send");
         let msgs = self.build_connection_open_init()?;
 
-        println!("msgs: {:?}", msgs);
+        // println!("msgs: {:?}", msgs);
         // let tm = TrackedMsgs::new_static(dst_msgs, "ConnectionOpenInit");
         let events = self
             .target_chain()
             .send_messages_and_wait_commit(msgs)
             .await?;
 
-        println!("ibc events: {:?}", events);
+        // println!("ibc events: {:?}", events);
         // Find the relevant event for connection init
         let result = events
             .into_iter()
@@ -902,7 +902,7 @@ impl Connection {
                 consensus_height
             );
 
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(50));
         }
 
         Ok(())
@@ -965,6 +965,21 @@ impl Connection {
         )?;
 
         Ok(dst_expected_connection)
+    }
+}
+
+impl Display for Connection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Connection {{ source_connection: {:?}, source_chain: {}, source_client: {}, target_connection: {:?}, target_chain: {}, target_client: {} }}",
+            self.side_a.connection_id(),
+            self.side_a.chain().id(),
+            self.side_a.client_id(),
+            self.side_b.connection_id(),
+            self.side_b.chain().id(),
+            self.side_b.client_id(),
+        )
     }
 }
 

@@ -26,6 +26,9 @@ lazy_static! {
                 .subcommand(
                     Command::new("register")
                         .arg(arg!(-c --config <CONFIG> "chain's configure file path"))
+                )
+                .subcommand(
+                    Command::new("queryall").about("query all chains")
                 ),
         )
         .subcommand(
@@ -58,8 +61,14 @@ lazy_static! {
                     Command::new("create")
                         .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
                         .arg(arg!(-t --target <TARGET_CHAIN_ID>))
+                        .arg(arg!(--sourceclient <SOURCE_CLIENT_ID>))
+                        .arg(arg!(--targetclient <TARGET_CLIENT_ID>))
                         .arg(arg!(--sourceconn <SOURCE_CONNECTION_ID>))
                         .arg(arg!(--targetconn <TARGET_CONNECTION_ID>))
+                        .arg(arg!(--sourceport <SOURCE_PORT_ID>))
+                        .arg(arg!(--targetport <TARGET_PORT_ID>))
+                        .arg(arg!(--sourceversion <SOURCE_VERSION>))
+                        .arg(arg!(--targetversion <TARGET_VERSION>))
                 )
         )
         .subcommand(

@@ -8,5 +8,7 @@ edition = "2021"
 [dependencies]
 cosmos_chain = { path = "../cosmos_chain"}
 cli = { path = "../cli"}
+types = { path = "../types"}
 
 clap = "3.1.7"
+tokio = "1.29.1"

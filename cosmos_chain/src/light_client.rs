@@ -46,11 +46,11 @@ pub fn verify_block_header_and_fetch_light_block(
     sync_latest_block_time: Time,
 ) -> Result<Verified<LightBlock>, Error> {
     if !chain_config.trusted_node {
-        println!("trusted node is false");
+        info!("trusted node is false");
         let trpc_io = build_light_client_io(trpc, chain_config, node_id);
         let light_block = fetch_light_block(&trpc_io, target_height)?;
 
-        println!(
+        info!(
             "[verify_block_header_and_fetch_light_block] Light Block: {:?}",
             light_block
         );
@@ -141,7 +141,7 @@ pub fn build_light_client_io(
 }
 
 pub fn fetch_light_block(trpc_io: &ProdIo, height: Height) -> Result<LightBlock, Error> {
-    println!("access fetch light block");
+    info!("access fetch light block");
     let light_block = trpc_io
         .fetch_light_block(AtHeight::At(height.into()))
         .map_err(|e| Error::fetch_light_block(e))?;

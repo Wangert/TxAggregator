@@ -166,7 +166,7 @@ impl CosmosChain {
         let mut trpc_client = self.tendermint_rpc_client();
         let mut grpc_service_client = self.grpc_tx_sevice_client().await;
 
-        println!("msg_batch_number: {}", msg_batches.len());
+        // println!("msg_batch_number: {}", msg_batches.len());
         for msg_batch in msg_batches {
             let tx_results = send_tx(
                 &self.config,

@@ -155,7 +155,7 @@ pub async fn wait_for_tx_block_commit(
             // .into_iter()
             // .next();
 
-            println!("tx_hash: {:?}", tx_sync_response.hash);
+            println!(">>>>>>>>>> waiting for commit -> tx_hash: {:?}", tx_sync_response.hash);
             // println!("[wait_for_tx_block_commit]: tx_response_result=={:?}", tx_response_result);
             // println!("tx_response_result: {:?}", tx_response);
 

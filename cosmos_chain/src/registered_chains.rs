@@ -1,5 +1,7 @@
-use std::collections::HashMap;
+use std::{borrow::Borrow, collections::HashMap};
 
+use anyhow::Chain;
+use itertools::Itertools;
 use types::ibc_core::ics24_host::identifier::ChainId;
 
 use crate::chain::CosmosChain;
@@ -11,7 +13,10 @@ pub struct RegisteredChains {
 
 impl RegisteredChains {
     pub fn new() -> Self {
-        Self { chains: HashMap::new(), count: 0 }
+        Self {
+            chains: HashMap::new(),
+            count: 0,
+        }
     }
 
     pub fn add_chain(&mut self, chain: &CosmosChain) {
@@ -23,5 +28,13 @@ impl RegisteredChains {
 
     pub fn get_chain_by_id(&self, chain_id: &ChainId) -> Option<&CosmosChain> {
         self.chains.get(chain_id)
+    }
+
+    pub fn get_all_chain_ids(&self) -> Vec<ChainId> {
+        self.chains
+            .borrow()
+            .into_iter()
+            .map(|(k, _)| k.clone())
+            .collect_vec()
     }
 }

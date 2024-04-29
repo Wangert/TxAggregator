@@ -20,4 +20,8 @@ impl ChainManager {
             event_pool: Arc::new(RwLock::new(event_pool)),
         }
     }
+
+    pub fn chain_id(&self) -> ChainId {
+        self.chain_id.clone()
+    }
 }

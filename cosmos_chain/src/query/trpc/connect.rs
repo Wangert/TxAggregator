@@ -9,7 +9,7 @@ pub fn tendermint_rpc_client(rpc_addr: &str) -> HttpClient {
         Err(e) => panic!("tendermint rpc connect error: {:?}", e),
     };
 
-    println!("tendermint rpc connect success");
+    // println!("tendermint rpc connect success");
     info!("tendermint rpc connect success");
 
     client

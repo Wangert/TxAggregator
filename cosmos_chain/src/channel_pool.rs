@@ -13,15 +13,14 @@ use crate::{channel::Channel, error::Error};
 #[derive(Debug, Clone)]
 pub struct ChannelPool {
     channels: HashMap<String, Channel>,
-    channel_store_recv: Receiver<Channel>,
-    
+    // channel_store_recv: Receiver<Channel>,  
 }
 
 impl ChannelPool {
-    pub fn new(channel_store_recv: Receiver<Channel>) -> Self {
+    pub fn new() -> Self {
         Self {
             channels: HashMap::new(),
-            channel_store_recv
+            // channel_store_recv
         }
     }
 
@@ -60,22 +59,22 @@ impl ChannelPool {
         Ok(v)
     }
 
-    pub async fn tasks_handler_start(&mut self) {
-        loop {
-            select! {
-                recv(self.channel_store_recv) -> channel => {
-                    match channel {
-                        Ok(c) => {
-                            println!("+++++++++++++++++");
-                            println!("{:?}", c);
-                            _ = self.add_channel(c)
-                        },
-                        Err(e) => println!("channel receive error: {}", e)
-                    }
-                }
-            };
-        }
-    }
+    // pub async fn tasks_handler_start(&mut self) {
+    //     loop {
+    //         select! {
+    //             recv(self.channel_store_recv) -> channel => {
+    //                 match channel {
+    //                     Ok(c) => {
+    //                         println!("+++++++++++++++++");
+    //                         println!("{:?}", c);
+    //                         _ = self.add_channel(c)
+    //                     },
+    //                     Err(e) => println!("channel receive error: {}", e)
+    //                 }
+    //             }
+    //         };
+    //     }
+    // }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -141,8 +140,8 @@ pub mod channel_pool_tests {
 
     #[tokio::test]
     pub async fn multi_thread_channel_pool_rw_works() {
-        let (s, r) = crossbeam_channel::unbounded();
-        let channel_pool = Arc::new(Mutex::new(ChannelPool::new(r)));
+        // let (s, r) = crossbeam_channel::unbounded();
+        let channel_pool = Arc::new(Mutex::new(ChannelPool::new()));
 
         let channel_pool_clone = channel_pool.clone();
         let job_1 = tokio::spawn(async move {
