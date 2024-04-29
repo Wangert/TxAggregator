@@ -4,3 +4,4 @@ pub mod configure;
 pub mod interact;
 pub mod client;
 pub mod args;
+pub mod cmd_matches;

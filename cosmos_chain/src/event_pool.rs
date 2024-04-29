@@ -3,17 +3,18 @@ use std::{path::Display, sync::Arc};
 use tokio::sync::RwLock;
 use types::ibc_events::IbcEventWithHeight;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EventPool {
     ibc_events: Arc<RwLock<Vec<IbcEventWithHeight>>>,
-    chain_id: String
 }
 
 
 
 impl EventPool {
-    fn new(chainid: String) -> Self {
-        EventPool { ibc_events: Arc::new(RwLock::new(Vec::new())), chain_id: chainid }
+    fn new() -> Self {
+        EventPool {
+            ibc_events: Arc::new(RwLock::new(Vec::new())),
+        }
     }
 
     async fn push_events(&self, mut ibc_events: Vec<IbcEventWithHeight>) {

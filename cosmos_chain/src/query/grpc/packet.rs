@@ -22,10 +22,10 @@ pub async fn query_unreceived_packets(
     let mut response = grpc_client
         .unreceived_packets(request)
         .await
-        .map_err(|e| Error::grpc_status(e, "query unreceived packets".to_string()))?.into_inner();
+        .map_err(|e| Error::grpc_status(e, "query unreceived packets".to_string()))?
+        .into_inner();
 
     response.sequences.sort_unstable();
 
     Ok(response.sequences.into_iter().map(|s| s.into()).collect())
-
 }

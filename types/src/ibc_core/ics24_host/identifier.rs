@@ -410,6 +410,7 @@ impl FromStr for PortId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         validate_port_identifier(s).map(|_| Self(s.to_string()))
+        // Ok(Self(s.to_string()))
     }
 }
 

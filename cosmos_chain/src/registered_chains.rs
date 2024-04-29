@@ -1,0 +1,27 @@
+use std::collections::HashMap;
+
+use types::ibc_core::ics24_host::identifier::ChainId;
+
+use crate::chain::CosmosChain;
+
+pub struct RegisteredChains {
+    chains: HashMap<ChainId, CosmosChain>,
+    count: u64,
+}
+
+impl RegisteredChains {
+    pub fn new() -> Self {
+        Self { chains: HashMap::new(), count: 0 }
+    }
+
+    pub fn add_chain(&mut self, chain: &CosmosChain) {
+        let result = self.chains.insert(chain.id(), chain.clone());
+        if result.is_none() {
+            self.count = self.count + 1;
+        }
+    }
+
+    pub fn get_chain_by_id(&self, chain_id: &ChainId) -> Option<&CosmosChain> {
+        self.chains.get(chain_id)
+    }
+}

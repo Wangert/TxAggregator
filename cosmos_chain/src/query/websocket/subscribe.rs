@@ -26,13 +26,12 @@ pub struct EventSubscriptions {
     pub subs: Box<SubscriptionsStream>,
     pub driver_handle: JoinHandle<()>,
     pub queries: Vec<Query>,
-    pub rt: Arc<Runtime>,
+    // pub rt: Arc<Runtime>,
 }
 
 impl EventSubscriptions {
     pub fn new(rt: Arc<Runtime>) -> EventSubscriptions {
-        // let url =  WebSocketClientUrl::from_str("ws://127.0.0.1:26657/websocket").unwrap();
-        // let (client, driver) = rt.block_on(WebSocketClient::builder(url).build()).expect("build error!");
+        // let rt = Runtime::new().unwrap();
         let (client, driver) = rt
             .block_on(WebSocketClient::new("ws://10.176.35.58:26656/websocket"))
             .expect("build error!");
@@ -46,19 +45,18 @@ impl EventSubscriptions {
             subs,
             driver_handle,
             queries,
-            rt,
+            // rt,
         }
     }
 
-    pub fn init_subscriptions(&mut self) -> Result<(), WsError> {
+    pub fn init_subscriptions(&mut self, rt: Arc<Runtime>) -> Result<(), WsError> {
+        // let rt = Runtime::new().unwrap();
         let mut subscriptions = vec![];
 
         for query in &self.queries {
             trace!("subscribing to query: {}", query);
 
-            let subscription = self
-                .rt
-                .block_on(self.client.subscribe(query.clone()))
+            let subscription = rt.block_on(self.client.subscribe(query.clone()))
                 .map_err(WsError::client_subscription_failed)?;
 
             subscriptions.push(subscription);
@@ -70,14 +68,6 @@ impl EventSubscriptions {
     }
 
     pub async fn listen_events(&mut self) {
-        // let sub_result = self.client.subscribe(event.into()).await;
-        // let mut sub: Subscription;
-        // println!("1111111");
-        // match sub_result {
-        //     Ok(s) => sub = s,
-        //     Err(e) => { println!("{}", e); panic!("error!!"); }
-        // }
-
         let subs = core::mem::replace(&mut self.subs, Box::new(stream::empty()));
 
         let chain_id = ChainId::default();
@@ -89,19 +79,14 @@ impl EventSubscriptions {
             .map_err(WsError::canceled_or_generic)
             .try_flatten();
 
-
-
-        let mut ev_count = 100;
+        let mut ev_count = 5;
         println!("99999999999999999");
+
         while let Some(res) = events.next().await {
             match res {
                 Ok(event) => println!("Got event: {:?}", event),
                 Err(e) => panic!("{}", e),
             }
-
-            // let ev = res.unwrap();
-            // println!("############################");
-            // println!("Got event: {:?}", ev);
 
             ev_count -= 1;
             if ev_count < 0 {
@@ -110,19 +95,6 @@ impl EventSubscriptions {
         }
     }
 
-    // pub async fn listen_events(&mut self) {
-    //     let result = self.init_subscriptions();
-
-    //     match result {
-    //         Ok(v) => self.receive_events().await,
-    //         Err(e) => panic!("{}", e)
-    //     }
-    // }
-
-    // pub async fn stop(&mut self) {
-    //     self.client.clone().close().unwrap();
-    //     self.driver_handle.await.unwrap();
-    // }
 }
 
 #[cfg(test)]
@@ -135,17 +107,24 @@ pub mod subscribe_tests {
 
     #[test]
     pub fn subscribe_newblock_event_works() {
+        // console_error_panic_hook::set_once();
         let rt = Arc::new(tokio::runtime::Runtime::new().expect("runtime create error"));
 
+        // let rt = tokio::runtime::Runtime::new().expect("runtime create error");
+
         println!("111111");
-        let mut es = EventSubscriptions::new(rt);
+        let mut es = EventSubscriptions::new(rt.clone());
 
         println!("88888888888888");
+    
 
-        _ = es.init_subscriptions();
-        let rrt = tokio::runtime::Runtime::new().expect("runtime create error");
-        rrt.block_on(es.listen_events());
+        _ = es.init_subscriptions(rt.clone());
+
+        let rt_2 = tokio::runtime::Runtime::new().expect("runtime create error");
+
+        rt_2.block_on(es.listen_events());
+
         es.client.close().unwrap();
-        rrt.block_on(es.driver_handle).unwrap();
+        rt_2.block_on(es.driver_handle).unwrap();
     }
 }
