@@ -462,9 +462,9 @@ pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent,
         Ok(IbcEventType::WriteAck) => Ok(IbcEvent::WriteAcknowledgement(
             write_acknowledgement_try_from_abci_event(abci_event)?,
         )),
-        // Ok(IbcEventType::AckPacket) => Ok(IbcEvent::AcknowledgePacket(
-        //     acknowledge_packet_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
-        // )),
+        Ok(IbcEventType::AckPacket) => Ok(IbcEvent::AcknowledgePacket(
+            acknowledge_packet_try_from_abci_event(abci_event)?,
+        )),
         // Ok(IbcEventType::Timeout) => Ok(IbcEvent::TimeoutPacket(
         //     timeout_packet_try_from_abci_event(abci_event).map_err(IbcEventError::channel)?,
         // )),
@@ -481,6 +481,13 @@ pub fn ibc_event_try_from_abci_event(abci_event: &AbciEvent) -> Result<IbcEvent,
         // )),
         _ => Err(TypesError::unsupported_abci_event(abci_event.kind.clone())),
     }
+}
+
+pub fn acknowledge_packet_try_from_abci_event(
+    abci_event: &AbciEvent,
+) -> Result<ChannelEvents::AcknowledgePacket, TypesError> {
+    extract_packet_and_write_ack_from_tx(abci_event)
+        .map(|(packet, _)| ChannelEvents::AcknowledgePacket { packet })
 }
 
 pub fn write_acknowledgement_try_from_abci_event(
