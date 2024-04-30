@@ -1037,7 +1037,7 @@ pub mod channel_tests {
         let channel_side_a = ChannelSide {
             chain: cosmos_chain_a,
             client_id: ClientId::from_str("07-tendermint-12").unwrap(),
-            connection_id: ConnectionId::from_str("connection-8").unwrap(),
+            connection_id: ConnectionId::from_str("connection-5").unwrap(),
             port_id: PortId::from_str("transfer").unwrap(),
             channel_id: None,
             version: Some(Version("blog-1".to_string())),
@@ -1046,7 +1046,7 @@ pub mod channel_tests {
         let channel_side_b = ChannelSide {
             chain: cosmos_chain_b,
             client_id: ClientId::from_str("07-tendermint-6").unwrap(),
-            connection_id: ConnectionId::from_str("connection-5").unwrap(),
+            connection_id: ConnectionId::from_str("connection-3").unwrap(),
             port_id: PortId::from_str("transfer").unwrap(),
             channel_id: None,
             version: Some(Version("blog-1".to_string())),

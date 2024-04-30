@@ -1,12 +1,14 @@
-use std::{sync::Arc, thread, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Chain;
 use tendermint_rpc::SubscriptionClient;
-use tokio::{runtime::Runtime, sync::RwLock, time};
+// use tendermint_rpc::SubscriptionClient;
+use tokio::{sync::RwLock, time};
 use types::ibc_core::{ics02_client::height::Height, ics24_host::identifier::ChainId};
 //wjt
 // use crate::{event_pool::EventPool, query::websocket::subscribe::EventSubscriptions};
 use crate::query::websocket::subscribe::{EventPool, EventSubscriptions};
+// #[derive(Clone)]
 pub struct ChainManager {
     chain_id: ChainId,
     event_subscriptions: EventSubscriptions,
@@ -26,71 +28,69 @@ impl ChainManager {
         }
     }
 
-    pub fn subscribe_newblock_event_works(&mut self,rt: Arc<Runtime>) {
-        // let rt = Arc::new(tokio::runtime::Runtime::new().expect("runtime create error"));
-        println!("111111");
-        // let mut es = EventSubscriptions::new(rt.clone());
+    // pub async fn subscribe_newblock_event_works(&mut self) {
+    //     // let rt = Arc::new(tokio::runtime::Runtime::new().expect("runtime create error"));
 
-        println!("88888888888888");
+    //     println!("88888888888888");
+    //     // self.event_subscriptions.init_subscriptions();
+    //     let chain_id = self.chain_id.clone();
+    //     let ep = self.event_pool.clone();
+    //     self.event_subscriptions.listen_events(chain_id, ep).await;
+    //     self.event_subscriptions.client.close().unwrap();
+    //     self.event_subscriptions.driver_handle.await;
+    //     // time::sleep(Duration::from_secs(2)).await;
+    // }
 
-        // let event_pool_clone = self.event_pool.clone();
-
-        // _ = self.event_subscriptions.init_subscriptions();
-        // self.event_subscriptions
-        //     .listen_events(self.event_pool)
-        //     .await;
-        let event_pool_arc = Arc::clone(&self.event_pool);
-        // let es_clone = self.event_subscriptions.clone();
-        rt.block_on(self.event_subscriptions.listen_events(event_pool_arc));
-        // self.event_subscriptions.client.close().unwrap();
-        // self.event_subscriptions.driver_handle.await;
-        // rt.block_on(self.event_subscriptions.driver_handle);
-    }
-    pub async fn get_event_pool(&mut self,rt: Arc<Runtime>){
-        //let rt = Arc::new(tokio::runtime::Runtime::new().expect("runtime create error"));
-        let height = Height::new(0, 139780).unwrap();
-        loop {
-            
-            let result = self.event_pool.read().await;
-            let pool = &*result;
-            let _ = pool.read_with_height(height);
-        }
-    
-    }
+    // pub async fn read_event_pool(&mut self) {
+    //     println!("2222222222222");
+    //     let height = Height::new(0, 139780).unwrap();
+    //     // let result = rt.block_on(es.event_pool.read());
+    //     loop {
+    //         let _ = self.event_pool.read().await.read_with_height(height);
+    //         time::sleep(Duration::from_secs(2)).await;
+    //     }
+    // }
 }
 
-
 #[cfg(test)]
-pub mod chain_manager_tests{
-    use std::{sync::Arc, time::Duration};
+pub mod chain_manager_tests {
     use std::thread;
-    use tendermint_rpc::SubscriptionClient;
-    use tokio::sync::RwLock;
+    use std::{sync::Arc, time::Duration};
+
+    use tendermint_rpc::{event, SubscriptionClient};
     use tokio::time;
     use types::ibc_core::ics02_client::height::Height;
     use types::ibc_core::ics24_host::identifier::ChainId;
-    
+
     use crate::chain_manager::ChainManager;
-    use crate::{
-        query::websocket::subscribe::{EventPool,EventSubscriptions},
-    };
-    
-    pub fn start(){
+    use crate::query::websocket::subscribe::{EventPool, EventSubscriptions};
+    #[test]
+    pub fn start() {
         let rt = Arc::new(tokio::runtime::Runtime::new().expect("runtime create error"));
         println!("111111");
         let chain_id = ChainId::default();
         let mut es = EventSubscriptions::new(rt.clone());
         let mut ep = EventPool::new();
         let mut cm = ChainManager::new(chain_id, es, ep);
-        
-        _ = cm.event_subscriptions.init_subscriptions();
-        let subscribe_thread = tokio::spawn(async move{
-            cm.subscribe_newblock_event_works(rt.clone());
+        rt.block_on(cm.event_subscriptions.init_subscriptions());
+        let height = Height::new(0, 193825).unwrap();
+        let event_pool_clone = cm.event_pool.clone();
+
+        rt.spawn(async move {
+            
+            let chain_id = cm.chain_id.clone();
+            cm.event_subscriptions
+                .listen_events(chain_id, cm.event_pool)
+                .await;
             cm.event_subscriptions.client.close().unwrap();
             cm.event_subscriptions.driver_handle.await;
         });
-        let read_thread =tokio::spawn(async move{
-            cm.get_event_pool(rt.clone());
+        
+        rt.spawn(async move {
+            loop {
+                event_pool_clone.read().await.read_with_height(height);
+                time::sleep(Duration::from_secs(2)).await;
+            }
         });
         thread::sleep(Duration::from_secs(20));
     }

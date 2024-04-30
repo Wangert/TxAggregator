@@ -1062,11 +1062,11 @@ pub mod connection_tests {
 
         let mut connection_side_a = ConnectionSide::new(
             cosmos_chain_a,
-            ClientId::from_str("07-tendermint-13").unwrap(),
+            ClientId::from_str("07-tendermint-12").unwrap(),
         );
         let mut connection_side_b = ConnectionSide::new(
             cosmos_chain_b,
-            ClientId::from_str("07-tendermint-7").unwrap(),
+            ClientId::from_str("07-tendermint-6").unwrap(),
         );
 
         // connection_side_a.connection_id = Some(ConnectionId::from_str("connection-5").unwrap());
