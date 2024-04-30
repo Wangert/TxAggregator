@@ -95,7 +95,7 @@ pub mod query_grpc_account_tests {
     #[test]
     pub fn query_all_acount_works() {
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
         let mut cosmos_chain = CosmosChain::new(file_path);
         let rt = tokio::runtime::Runtime::new().unwrap();
 
@@ -103,7 +103,7 @@ pub mod query_grpc_account_tests {
         let account = rt
             .block_on(
                 cosmos_chain.query_detail_account_by_address(
-                    "cosmos1qjxsp8m9lp6q5xdzcqkvx4rmfj3qe4pyk2few7",
+                    "cosmos1gn6f8n4wlnn4dcwq0c9pzy8sewu9jj6tzfs58c",
                 ),
             )
             .expect("query account error!");
