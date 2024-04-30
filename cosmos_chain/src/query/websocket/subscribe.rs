@@ -77,7 +77,7 @@ pub struct EventSubscriptions {
 impl EventSubscriptions {
     pub fn new(rt: Arc<Runtime>) -> EventSubscriptions {
         let (client, driver) = rt
-            .block_on(WebSocketClient::new("ws://10.176.35.58:26659/websocket"))
+            .block_on(WebSocketClient::new("ws://10.176.35.58:26656/websocket"))
             .expect("build error!");
         let driver_handle = rt.spawn(async move { driver.run().await.unwrap() });
 
@@ -123,7 +123,7 @@ impl EventSubscriptions {
             .map_err(WsError::canceled_or_generic)
             .try_flatten();
         let event_pool_clone = event_pool.clone();
-        let mut ev_count = 10;
+        let mut ev_count = 100;
         println!("99999999999999999");
         while let Some(res) = events.next().await {
             match res {

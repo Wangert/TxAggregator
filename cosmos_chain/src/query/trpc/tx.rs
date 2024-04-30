@@ -38,7 +38,7 @@ pub mod tx_tests {
     pub fn tx_works() {
         let tx_hash = Hash::from_hex_upper(Algorithm::Sha256, "3262D1307F7F99FA15DAC467835EAAF33081E6A6B432E7475E1D8478E5703CFE").expect("hash error");
 
-        let mut trpc = tendermint_rpc_client("http://0.0.0.0:26657");
+        let mut trpc = tendermint_rpc_client("http://10.176.35.58:26657");
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let tx_response = rt.block_on(tx(&mut trpc, tx_hash, true));
