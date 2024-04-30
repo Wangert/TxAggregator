@@ -1,9 +1,10 @@
 use clap::ArgMatches;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::time::sleep;
 
 use crate::cmd::get_command_completer;
 use crate::commons::CommandCompleter;
-use log::error;
+use log::{error, info};
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
@@ -12,13 +13,15 @@ use rustyline::validate::{MatchingBracketValidator, Validator};
 use rustyline::{validate, CompletionType, Config, Context, Editor, OutputStreamType};
 use rustyline_derive::Helper;
 use shellwords::split;
+use std::borrow::BorrowMut;
 use std::borrow::Cow::{self, Borrowed, Owned};
+use std::time::Duration;
 
-#[derive(Debug, Clone)]
-pub enum ClientType {
-    Controller,
-    Analyzer,
-}
+// #[derive(Debug, Clone)]
+// pub enum ClientType {
+//     Controller,
+//     Analyzer,
+// }
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -34,13 +37,22 @@ impl Client {
         self.arg_matches.clone()
     }
 
-    pub fn run(&mut self, args_sender: Sender<Vec<String>>) {
-        tokio::spawn(async move {
+    pub async fn run(
+        &mut self,
+        args_sender: Sender<Vec<String>>,
+        // mut args_receiver: Receiver<Vec<String>>,
+    ) {
+        info!("##########");
+        let task_1 = tokio::spawn(async move {
             run(args_sender).await;
         });
+
+        // sleep(Duration::from_secs(20)).await
+        // _ = tokio::try_join!(task_1, task_2);
     }
 }
 
+// pub async fn run(args_sender: Sender<Vec<String>>) {
 pub async fn run(args_sender: Sender<Vec<String>>) {
     let config = Config::builder()
         .history_ignore_space(true)
@@ -64,7 +76,7 @@ pub async fn run(args_sender: Sender<Vec<String>>) {
     println!("======================================================================================================================");
     println!("**********************************************************************************************************************");
     println!("**                                                                                                                  **");
-    println!("**                                                                                                                  **");  
+    println!("**                                                                                                                  **");
     println!(
         "         
         __      __   _                    _                                                                      
@@ -80,23 +92,15 @@ pub async fn run(args_sender: Sender<Vec<String>>) {
     );
     println!("**   Cross-Chain TxAggregator(version 1.0):                                                                         **");
     println!("**                                                                                                                  **");
-    println!("**                                                                Developers: Jitao Wang & Bo Zhang & Yuzhou Wang   **");
+    println!("**                                                                         Developers: Jitao Wang                   **");
     println!("**                                                                         Laboratory: DasLab of Fudan University   **");
     println!("**                                                                                                                  **");
     println!("**********************************************************************************************************************");
     println!("======================================================================================================================");
     // }
 
-
-    
-
+    let p = "TxAggregator>> ".to_string();
     loop {
-        let mut p = "TxAggregator>> ".to_string();
-        // match client_type {
-        //     ClientType::Analyzer => p = "BFTDiagnosis(Analyzer)>> ".to_string(),
-        //     _ => {}
-        // }
-        // let p = format!("{}>> ", "BFTDiagnosis");
         rl.helper_mut().expect("No helper").colored_prompt = format!("\x1b[1;32m{}\x1b[0m", p);
         let readline = rl.readline(&p);
         match readline {
@@ -114,6 +118,7 @@ pub async fn run(args_sender: Sender<Vec<String>>) {
                         }
                         arg.insert(0, "clisample".to_string());
                         _ = args_sender.send(arg.to_vec()).await;
+                        println!("{:?}", arg.to_vec())
                     }
                     Err(err) => {
                         println!("{}", err)
@@ -134,6 +139,7 @@ pub async fn run(args_sender: Sender<Vec<String>>) {
             }
         }
     }
+
     rl.append_history("/tmp/history")
         .map_err(|err| error!("{}", err))
         .ok();

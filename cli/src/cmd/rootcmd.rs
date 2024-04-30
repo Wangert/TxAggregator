@@ -3,42 +3,113 @@ use crate::cmd::cosmos_query_cmd::query_cosmos_account;
 use crate::commons::CommandCompleter;
 use crate::commons::SubCmd;
 
+use clap::arg;
 use clap::Arg;
-use clap::Command as clap_Command;
+use clap::Command;
 use lazy_static::lazy_static;
 
 use std::borrow::Borrow;
+use std::path::PathBuf;
 
 use sysinfo::{PidExt, System, SystemExt};
 
 lazy_static! {
-    pub static ref CMD: clap::Command<'static> = clap::Command::new("TxAggregator")
-        .version("1.0")
-        .author("Wangert")
-        .about("TxAggregator")
-        // .arg(
-        //     Arg::new("consensus")
-        //         .short('n')
-        //         .long("consensus")
-        //         .help("-n")
-        //         .takes_value(true)
-        //         .multiple_values(true)
-        // )
-        // .arg(
-        //     Arg::new("controller")
-        //         .short('c')
-        //         .long("controller")
-        //         .help("-c")
-        // )
-        .arg(Arg::new("CosmosQuery").short('c').long("cosmosquery").help("-a"))
-        .help_expected(true)
-        .subcommand(init_cmd())
-        .subcommand(query_cosmos_account());
+    pub static ref CMD: clap::Command<'static> = Command::new("CTXA")
+        .about("Cross chain aggregator CLI")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .allow_external_subcommands(true)
+        .subcommand(
+            Command::new("chain")
+                .about("chain operations")
+                .arg_required_else_help(true)
+                .subcommand(
+                    Command::new("register")
+                        .arg(arg!(-c --config <CONFIG> "chain's configure file path"))
+                )
+                .subcommand(
+                    Command::new("queryall").about("query all chains")
+                ),
+        )
+        .subcommand(
+            Command::new("client")
+                .about("client operations")
+                .arg_required_else_help(true)
+                .subcommand(
+                    Command::new("create")
+                        .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
+                        .arg(arg!(-t --target <TARGET_CHAIN_ID>))
+                )
+        )
+        .subcommand(
+            Command::new("connection")
+                .about("connection operations")
+                .arg_required_else_help(true)
+                .subcommand(
+                    Command::new("create")
+                        .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
+                        .arg(arg!(-t --target <TARGET_CHAIN_ID>))
+                        .arg(arg!(--sourceclient <SOURCE_CLIENT_ID>))
+                        .arg(arg!(--targetclient <TARGET_CLIENT_ID>))
+                )
+        )
+        .subcommand(
+            Command::new("channel")
+                .about("channel operations")
+                .arg_required_else_help(true)
+                .subcommand(
+                    Command::new("create")
+                        .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
+                        .arg(arg!(-t --target <TARGET_CHAIN_ID>))
+                        .arg(arg!(--sourceclient <SOURCE_CLIENT_ID>))
+                        .arg(arg!(--targetclient <TARGET_CLIENT_ID>))
+                        .arg(arg!(--sourceconn <SOURCE_CONNECTION_ID>))
+                        .arg(arg!(--targetconn <TARGET_CONNECTION_ID>))
+                        .arg(arg!(--sourceport <SOURCE_PORT_ID>))
+                        .arg(arg!(--targetport <TARGET_PORT_ID>))
+                        .arg(arg!(--sourceversion <SOURCE_VERSION>))
+                        .arg(arg!(--targetversion <TARGET_VERSION>))
+                )
+        )
+        .subcommand(
+            Command::new("start")
+                .about("start aggregator")
+                .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
+                .arg(arg!(-t --target <TARGET_CHAIN_ID>))
+                .arg_required_else_help(true),
+        );
     static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands();
 }
 
+// lazy_static! {
+//     pub static ref CMD: clap::Command<'static> = clap::Command::new("TxAggregator")
+//         .version("1.0")
+//         .author("Wangert")
+//         .about("TxAggregator")
+//         // .arg(
+//         //     Arg::new("consensus")
+//         //         .short('n')
+//         //         .long("consensus")
+//         //         .help("-n")
+//         //         .takes_value(true)
+//         //         .multiple_values(true)
+//         // )
+//         // .arg(
+//         //     Arg::new("controller")
+//         //         .short('c')
+//         //         .long("controller")
+//         //         .help("-c")
+//         // )
+//         .arg(Arg::new("CosmosQuery").short('c').long("cosmosquery").help("-a"))
+//         .help_expected(true)
+//         .subcommand(init_cmd())
+//         .subcommand(query_cosmos_account());
+//     static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands();
+// }
+
+
 // 获取全部子命令，用于构建commandcompleter
-pub fn all_subcommand(app: &clap_Command, beginlevel: usize, input: &mut Vec<SubCmd>) {
+pub fn all_subcommand(app: &Command, beginlevel: usize, input: &mut Vec<SubCmd>) {
     let nextlevel = beginlevel + 1;
     let mut subcmds = vec![];
     for iterm in app.get_subcommands() {
@@ -79,3 +150,61 @@ pub fn process_exists(pid: &u32) -> bool {
     }
     return false;
 }
+
+// fn cli() -> Command<'static> {
+//     Command::new("CTXA")
+//         .about("Cross chain aggregator CLI")
+//         .subcommand_required(true)
+//         .arg_required_else_help(true)
+//         .allow_external_subcommands(true)
+//         .subcommand(
+//             Command::new("chain")
+//                 .about("chain operations")
+//                 .arg_required_else_help(true)
+//                 .subcommand(
+//                     Command::new("register")
+//                         .arg(arg!(-c --config <CONFIG> "chain's configure file path")),
+//                 ),
+//         )
+//         .subcommand(
+//             Command::new("client")
+//                 .about("client operations")
+//                 .arg_required_else_help(true)
+//                 .subcommand(
+//                     Command::new("create")
+//                         .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
+//                         .arg(arg!(-t --target <TARGET_CHAIN_ID>)),
+//                 ),
+//         )
+//         .subcommand(
+//             Command::new("connection")
+//                 .about("connection operations")
+//                 .arg_required_else_help(true)
+//                 .subcommand(
+//                     Command::new("create")
+//                         .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
+//                         .arg(arg!(-t --target <TARGET_CHAIN_ID>))
+//                         .arg(arg!(--source-client <SOURCE_CLIENT_ID>))
+//                         .arg(arg!(--target-client <TARGET_CLIENT_ID>)),
+//                 ),
+//         )
+//         .subcommand(
+//             Command::new("channel")
+//                 .about("channel operations")
+//                 .arg_required_else_help(true)
+//                 .subcommand(
+//                     Command::new("create")
+//                         .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
+//                         .arg(arg!(-t --target <TARGET_CHAIN_ID>))
+//                         .arg(arg!(--source-conn <SOURCE_CONNECTION_ID>))
+//                         .arg(arg!(--target-conn <TARGET_CONNECTION_ID>)),
+//                 ),
+//         )
+//         .subcommand(
+//             Command::new("start")
+//                 .about("start aggregator")
+//                 .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
+//                 .arg(arg!(-t --target <TARGET_CHAIN_ID>))
+//                 .arg_required_else_help(true),
+//         )
+// }

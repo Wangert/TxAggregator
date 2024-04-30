@@ -4,64 +4,42 @@
 //     Ok(())
 // }
 
-use http::Uri;
-use types::ibc_core::ics24_host::identifier::ClientId;
-use std::{error::Error, str::FromStr, time::Duration};
+use magnetism::supervisor::Supervisor;
+use std::error::Error;
 
 use cli::{client::Client, cmd::rootcmd::CMD};
-use cosmos_chain::{
-    account::Secp256k1Account, chain::CosmosChain, connection::{Connection, ConnectionSide}, query::grpc::account::query_detail_account
-};
-use log::info;
+
 use tokio::sync::mpsc;
-use tracing::{info_span, metadata::LevelFilter};
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // let cmd_matches = CMD.clone().get_matches();
-    // let mut client = Client::new(cmd_matches);
-
-    // let (args_sender, _args_recevier) = mpsc::channel::<Vec<String>>(10);
-    // client.run(args_sender);
-
-    // let grpc_addr = "http://0.0.0.0:9090".parse::<Uri>().unwrap();
-    // let account_addr = "cosmos1vpj4s5hsngjprp1ft5hvuqj5v7dvnxjnsn5n4z";
-    // let base_account = query_detail_account(&grpc_addr, account_addr).await?;
-
-    // println!("{:?}", base_account);
-
     // env_logger::init();
 
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .init();
+    // tracing_subscriber::fmt()
+    //     .with_max_level(tracing::Level::INFO)
+    //     .init();
 
-    let a_file_path =
-        "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
-    let b_file_path =
-        "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+    let cmd = CMD.clone();
 
-    let cosmos_chain_a = CosmosChain::new(a_file_path);
-    let cosmos_chain_b = CosmosChain::new(b_file_path);
+    let cmd_matches = cmd.get_matches();
 
-    // let connection = Connection::new(
-    //     ConnectionSide::new(
-    //         cosmos_chain_a,
-    //         ClientId::from_str("07-tendermint-7").unwrap(),
-    //     ),
-    //     ConnectionSide::new(
-    //         cosmos_chain_b,
-    //         ClientId::from_str("07-tendermint-1").unwrap(),
-    //     ),
-    //     Duration::from_secs(100),
-    // );
+    let mut client = Client::new(cmd_matches);
 
-    // let result = connection.build_connection_open_init_and_send();
-    // match result {
-    //     Ok(events) => println!("Event: {:?}", events),
-    //     Err(e) => panic!("{}", e),
-    // }
+    let (args_sender, mut args_receiver) = mpsc::channel::<Vec<String>>(10);
+    client.run(args_sender).await;
+
+    let mut supervisor = Supervisor::new();
+
+    loop {
+        tokio::select! {
+            Some(args) = args_receiver.recv() => {
+
+                // println!("TASK2: {:?}", &args);
+                supervisor.cmd_matches(args).await?;
+
+            }
+        }
+    }
 
     Ok(())
 }

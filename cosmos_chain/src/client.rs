@@ -202,7 +202,7 @@ pub async fn build_consensus_state(
 ) -> Result<ConsensusState, Error> {
     let status = trpc::consensus::tendermint_status(trpc).await?;
 
-    println!("status.node_info.id: {:?}", status.node_info.id);
+    info!("status.node_info.id: {:?}", status.node_info.id);
     let verified_block = verify_block_header_and_fetch_light_block(
         trpc,
         chain_config,

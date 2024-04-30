@@ -14,6 +14,7 @@ use types::error::TypesError;
 use types::ibc_core::ics03_connection::error::ConnectionError;
 use types::ibc_core::ics04_channel::error::ChannelError;
 use types::ibc_core::ics23_commitment::error::CommitmentError;
+use types::ibc_core::ics24_host::error::IdentifierError;
 use types::ibc_core::ics24_host::identifier::ConnectionId;
 use types::ibc_events::IbcEvent;
 use types::proofs::ProofError;
@@ -179,7 +180,7 @@ define_error! {
             { payload: String }
             [ TraceError<TypesError> ]
             |e| { format!("ibc event error: {}", e.payload) },
-        
+
         // connection
         MissingConnectionInitEvent
             |_| { "missing connection openinit event" },
@@ -194,7 +195,7 @@ define_error! {
         HandshakeContinue
             |_| { "continue handshake" },
         ConnectionCompleted
-            |_| { "connection completed" }, 
+            |_| { "connection completed" },
         ConnectionStateError
             |_| { "connectuon state error" },
         BadConnectionState
@@ -210,9 +211,9 @@ define_error! {
         ChannelError
             [ TraceError<ChannelError> ]
             |e| { format!("channel error: {}", e) },
-        
+
         // tx
-        Tx 
+        Tx
             [ TraceError<TxError> ]
             |e| { format!("tx error: {}", e) },
 
@@ -240,8 +241,19 @@ define_error! {
         // type error
         TypeError
             [ TraceError<TypesError> ]
-            |e| { format!("type error: {}", e) }
+            |e| { format!("type error: {}", e) },
+        IdentifierError
+            [ TraceError<IdentifierError> ]
+            |e| { format!("identifier error: {}", e) },
 
+        EmptyChainId
+            |_| { "empty chain id" },
+        EmptyClientId
+            |_| { "empty client id" },
+        EmptyPortId
+            |_| { "empty port id" },
+        EmptyChannelVersion
+            |_| { "empty channel version" },
     }
 }
 
