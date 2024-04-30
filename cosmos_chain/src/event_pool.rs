@@ -1,28 +1,32 @@
 use std::{path::Display, sync::Arc};
 
 use tokio::sync::RwLock;
-use types::ibc_events::IbcEventWithHeight;
+use types::{ibc_core::ics02_client::height::Height, ibc_events::IbcEventWithHeight};
 
 #[derive(Debug, Clone)]
 pub struct EventPool {
-    ibc_events: Arc<RwLock<Vec<IbcEventWithHeight>>>,
+    ibc_events: Vec<IbcEventWithHeight>,
 }
 
 impl EventPool {
-    fn new() -> Self {
+    pub fn new() -> Self {
         EventPool {
-            ibc_events: Arc::new(RwLock::new(Vec::new())),
+            ibc_events: Vec::new(),
         }
     }
 
-    async fn push_events(&self, mut ibc_events: Vec<IbcEventWithHeight>) {
-        self.ibc_events.write().await.append(&mut ibc_events);
+    pub fn push_events(&mut self, mut ibc_events: Vec<IbcEventWithHeight>) {
+        self.ibc_events.append(&mut ibc_events);
     }
 
-    async fn clear_pool(&self) -> Vec<IbcEventWithHeight> {
-        let ibc_events = self.ibc_events.read().await.clone();
-        self.ibc_events.write().await.clear();
+    pub fn clear_pool(&mut self) -> Vec<IbcEventWithHeight> {
+        let ibc_events = self.ibc_events.clone();
+        self.ibc_events.clear();
 
         ibc_events
+    }
+
+    pub fn read_latest_event(&self) -> Option<IbcEventWithHeight> {
+        self.ibc_events.last().cloned()
     }
 }

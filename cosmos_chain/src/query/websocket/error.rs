@@ -12,6 +12,10 @@ define_error! {
         SubscriptionCancelled
             [ TraceError<TendermintRpcError> ]
             |_| { "subscription cancelled" },
+        ClientIsNotExist
+            |_| { "client is not exist" },
+        DriverHandlerIsNotExist
+            |_| { "driver handler is not exist" },
     }
 }
 

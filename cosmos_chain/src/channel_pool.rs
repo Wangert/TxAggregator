@@ -58,23 +58,6 @@ impl ChannelPool {
 
         Ok(v)
     }
-
-    // pub async fn tasks_handler_start(&mut self) {
-    //     loop {
-    //         select! {
-    //             recv(self.channel_store_recv) -> channel => {
-    //                 match channel {
-    //                     Ok(c) => {
-    //                         println!("+++++++++++++++++");
-    //                         println!("{:?}", c);
-    //                         _ = self.add_channel(c)
-    //                     },
-    //                     Err(e) => println!("channel receive error: {}", e)
-    //                 }
-    //             }
-    //         };
-    //     }
-    // }
 }
 
 #[derive(Debug, Clone, Serialize)]
