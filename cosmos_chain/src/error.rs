@@ -254,6 +254,8 @@ define_error! {
             |_| { "empty port id" },
         EmptyChannelVersion
             |_| { "empty channel version" },
+        EmptyChannel
+            |_| { "empty channel" },
     }
 }
 
