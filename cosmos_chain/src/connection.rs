@@ -1077,11 +1077,11 @@ pub mod connection_tests {
 
         let mut connection_side_a = ConnectionSide::new(
             cosmos_chain_a,
-            ClientId::from_str("07-tendermint-12").unwrap(),
+            ClientId::from_str("07-tendermint-15").unwrap(),
         );
         let mut connection_side_b = ConnectionSide::new(
             cosmos_chain_b,
-            ClientId::from_str("07-tendermint-6").unwrap(),
+            ClientId::from_str("07-tendermint-9").unwrap(),
         );
 
         // connection_side_a.connection_id = Some(ConnectionId::from_str("connection-5").unwrap());
@@ -1091,7 +1091,7 @@ pub mod connection_tests {
         let mut connection = Connection::new(
             connection_side_a,
             connection_side_b,
-            Duration::from_secs(100),
+            Duration::from_secs(0),
         );
 
         let rt = tokio::runtime::Runtime::new().unwrap();

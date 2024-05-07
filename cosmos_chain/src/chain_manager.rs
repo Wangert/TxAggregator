@@ -1,12 +1,28 @@
 use std::{borrow::BorrowMut, sync::Arc, time::Duration};
 
 use anyhow::Chain;
-use tendermint_rpc::SubscriptionClient;
+use digest::block_buffer::Error;
+
+use tendermint_rpc::{event, SubscriptionClient};
 // use tendermint_rpc::SubscriptionClient;
 use tokio::{sync::RwLock, time};
-use types::ibc_core::{ics02_client::height::Height, ics24_host::identifier::ChainId};
+use types::{
+    ibc_core::{
+        ics02_client::height::Height,
+        ics04_channel::{
+            events::{self as ChannelEvents, SendPacket, WriteAcknowledgement},
+            packet::Packet,
+        },
+        ics24_host::identifier::ChainId,
+    },
+    ibc_events::{IbcEvent, IbcEventWithHeight},
+};
+
 //wjt
-use crate::{event_pool::EventPool, query::websocket::subscribe::EventSubscriptions};
+use crate::{
+    channel_pool::ChannelPool, event_pool::EventPool,
+    query::websocket::subscribe::EventSubscriptions,
+};
 // use crate::query::websocket::subscribe::{EventPool, EventSubscriptions};
 // #[derive(Clone)]
 pub struct ChainManager {
@@ -42,7 +58,57 @@ impl ChainManager {
     pub async fn read(&self) {
         loop {
             let event = self.event_pool.read().await.read_latest_event();
+            // match event {
+            //     Some(IbcEventWithHeight { event: IbcEvent::NewBlock(_), .. }) => {
+            //         println!("1111");
+            //     },
+            //     _ => {},
+            // };
             println!("Latest event: {:?}", event);
+            time::sleep(Duration::from_secs(2)).await;
+        }
+    }
+
+    pub async fn read_send_packet(&self, channel_pool: Arc<RwLock<ChannelPool>>) {
+        loop {
+            let event = self.event_pool.read().await.read_latest_event();
+            let channel_pool_clone = channel_pool.clone();
+            if let Some(event_with_height) = event {
+                match event_with_height.event {
+                    IbcEvent::SendPacket(sendpacket) => {
+                        // return (sendpacket.packet, event_with_height.height);
+                        let sp = sendpacket.packet.clone();
+                        tokio::spawn(async move {
+                            
+                            
+                            
+                        });
+                    }
+                    _ => {
+                        println!("other event");
+                    }
+                };
+            } else {
+                println!("no event");
+            };
+            time::sleep(Duration::from_secs(2)).await;
+        }
+    }
+    pub async fn read_ack_packet(&self) -> (WriteAcknowledgement, Height) {
+        loop {
+            let event = self.event_pool.read().await.read_latest_event();
+            if let Some(event_with_height) = event {
+                match event_with_height.event {
+                    IbcEvent::WriteAcknowledgement(writeAcknowledgement) => {
+                        return (writeAcknowledgement, event_with_height.height);
+                    }
+                    _ => {
+                        println!("other event");
+                    }
+                };
+            } else {
+                println!("no event");
+            };
             time::sleep(Duration::from_secs(2)).await;
         }
     }
@@ -50,6 +116,7 @@ impl ChainManager {
 
 #[cfg(test)]
 pub mod chain_manager_tests {
+    use std::str::FromStr;
     use std::thread;
     use std::{sync::Arc, time::Duration};
 
@@ -57,23 +124,206 @@ pub mod chain_manager_tests {
     use tokio::sync::RwLock;
     use tokio::time;
     use types::ibc_core::ics02_client::height::Height;
-    use types::ibc_core::ics24_host::identifier::ChainId;
+    use types::ibc_core::ics04_channel::channel::Ordering;
+    use types::ibc_core::ics04_channel::version::Version;
+    use types::ibc_core::ics24_host::identifier::{ChainId, ClientId, ConnectionId, PortId};
 
+    use crate::chain::CosmosChain;
     use crate::chain_manager::ChainManager;
+    use crate::channel::{Channel, ChannelSide};
     use crate::event_pool::EventPool;
-    use crate::query::websocket::subscribe::{EventSubscriptions};
+    use crate::query::websocket::subscribe::EventSubscriptions;
 
     #[tokio::test]
     pub async fn subscribe_works() {
-
         let chain_id = ChainId::default();
         let es = EventSubscriptions::new();
         let ep = EventPool::new();
         let mut cm = ChainManager::new(chain_id, es, ep);
 
-        _ = cm.event_subscriptions.init_subscriptions().await;
+        _ = cm
+            .event_subscriptions
+            .init_subscriptions("ws://10.176.35.58:26656/websocket")
+            .await;
         cm.listen_events_start();
 
         cm.read().await;
+        // cm.read_send_packet().await;
+    }
+
+    #[tokio::test]
+    pub async fn send_packet_works() {
+        let a_file_path =
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+        let b_file_path =
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+
+        let cosmos_chain_a = CosmosChain::new(a_file_path);
+        let cosmos_chain_b = CosmosChain::new(b_file_path);
+
+        let channel_side_a = ChannelSide::new(
+            cosmos_chain_a,
+            ClientId::from_str("07-tendermint-15").unwrap(),
+            ConnectionId::from_str("connection-8").unwrap(),
+            PortId::from_str("blog").unwrap(),
+            None,
+            Some(Version("blog-1".to_string())),
+        );
+
+        let channel_side_b = ChannelSide::new(
+            cosmos_chain_b,
+            ClientId::from_str("07-tendermint-9").unwrap(),
+            ConnectionId::from_str("connection-6").unwrap(),
+            PortId::from_str("blog").unwrap(),
+            None,
+            Some(Version("blog-1".to_string())),
+        );
+
+        let mut channel = Channel {
+            ordering: Ordering::Unordered,
+            side_a: channel_side_a,
+            side_b: channel_side_b,
+            connection_delay: Duration::from_secs(100),
+        };
+
+        let result = channel.handshake().await;
+        println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
+        match result {
+            Ok(events) => println!("Event: {:?}", events),
+            Err(e) => println!("{:?}", e),
+        }
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let signer = channel.target_chain().account().get_signer().unwrap();
+        let chain_id = channel.source_chain().id();
+        let es = EventSubscriptions::new();
+        let ep = EventPool::new();
+        let mut cm = ChainManager::new(chain_id, es, ep);
+
+        _ = cm
+            .event_subscriptions
+            .init_subscriptions("ws://10.176.35.58:26656/websocket")
+            .await;
+        cm.listen_events_start();
+        let (packet, height) = cm.read_send_packet().await;
+
+        let msgs = channel
+            .source_chain()
+            .build_recv_packet(&packet, signer, height)
+            .await
+            .expect("build create client msg error!");
+
+        let query_height = channel.source_chain().query_latest_height().await.unwrap();
+
+        // Build message(s) to update client on target chain
+        let target_update_client_msgs = channel
+            .build_update_client_on_target_chain(query_height + 1)
+            .await
+            .unwrap();
+
+        let update_event = channel
+            .target_chain()
+            .send_messages_and_wait_commit(target_update_client_msgs)
+            .await
+            .unwrap();
+
+        let result = channel
+            .target_chain()
+            .send_messages_and_wait_commit(msgs)
+            .await;
+        match result {
+            Ok(events) => println!("Event: {:?}", events),
+            Err(e) => panic!("{}", e),
+        }
+        loop {
+            time::sleep(Duration::from_secs(2)).await;
+        }
+    }
+
+    #[tokio::test]
+    pub async fn ack_packet_works() {
+        let a_file_path =
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+        let b_file_path =
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+
+        let cosmos_chain_a = CosmosChain::new(a_file_path);
+        let cosmos_chain_b = CosmosChain::new(b_file_path);
+
+        let channel_side_a = ChannelSide::new(
+            cosmos_chain_a,
+            ClientId::from_str("07-tendermint-15").unwrap(),
+            ConnectionId::from_str("connection-8").unwrap(),
+            PortId::from_str("blog").unwrap(),
+            None,
+            Some(Version("blog-1".to_string())),
+        );
+
+        let channel_side_b = ChannelSide::new(
+            cosmos_chain_b,
+            ClientId::from_str("07-tendermint-9").unwrap(),
+            ConnectionId::from_str("connection-6").unwrap(),
+            PortId::from_str("blog").unwrap(),
+            None,
+            Some(Version("blog-1".to_string())),
+        );
+
+        let mut channel = Channel {
+            ordering: Ordering::Unordered,
+            side_a: channel_side_b,
+            side_b: channel_side_a,
+            connection_delay: Duration::from_secs(100),
+        };
+
+        let result = channel.handshake().await;
+        println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
+        match result {
+            Ok(events) => println!("Event: {:?}", events),
+            Err(e) => println!("{:?}", e),
+        }
+
+        let signer = channel.target_chain().account().get_signer().unwrap();
+        let chain_id = channel.source_chain().id();
+        let es = EventSubscriptions::new();
+        let ep = EventPool::new();
+        let mut cm = ChainManager::new(chain_id, es, ep);
+
+        _ = cm
+            .event_subscriptions
+            .init_subscriptions("ws://10.176.35.58:26659/websocket")
+            .await;
+        cm.listen_events_start();
+        let (packet, height) = cm.read_ack_packet().await;
+
+        let msgs = channel
+            .source_chain()
+            .build_ack_packet(&packet, &height, signer)
+            .await
+            .expect("build create client msg error!");
+
+        let query_height = channel.source_chain().query_latest_height().await.unwrap();
+
+        // Build message(s) to update client on target chain
+        let target_update_client_msgs = channel
+            .build_update_client_on_target_chain(query_height + 1)
+            .await
+            .unwrap();
+
+        let update_event = channel
+            .target_chain()
+            .send_messages_and_wait_commit(target_update_client_msgs)
+            .await
+            .unwrap();
+
+        let result = channel
+            .target_chain()
+            .send_messages_and_wait_commit(msgs)
+            .await;
+        match result {
+            Ok(events) => println!("Event: {:?}", events),
+            Err(e) => panic!("{}", e),
+        }
+        loop {
+            time::sleep(Duration::from_secs(2)).await;
+        }
     }
 }

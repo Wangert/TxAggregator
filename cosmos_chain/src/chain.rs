@@ -1027,7 +1027,7 @@ pub mod chain_tests {
     pub fn update_client_works() {
         init();
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1036,7 +1036,7 @@ pub mod chain_tests {
         let target_height = rt
             .block_on(cosmos_chain.query_latest_height())
             .expect("query latest height error!");
-        let client_id = ClientId::from_str("07-tendermint-6").expect("client id error!");
+        let client_id = ClientId::from_str("07-tendermint-14").expect("client id error!");
 
         let update_client_msgs = rt
             .block_on(cosmos_chain.build_update_client_own(&client_id, target_height))
@@ -1095,4 +1095,6 @@ pub mod chain_tests {
             Err(e) => panic!("{}", e),
         }
     }
+
+    
 }

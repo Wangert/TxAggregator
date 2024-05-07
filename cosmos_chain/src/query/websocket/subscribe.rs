@@ -2,6 +2,7 @@ use std::{
     borrow::Borrow, clone, collections::HashMap, future::IntoFuture, sync::Arc, time::Duration,
 };
 
+use bitcoin::string;
 use futures::{
     future::ok,
     stream::{self, select_all},
@@ -12,7 +13,7 @@ use tokio::{runtime::Runtime, sync::RwLock, task::JoinHandle, time};
 use tracing::trace;
 use types::{
     ibc_core::{ics02_client::height::Height, ics24_host::identifier::ChainId},
-    ibc_events::IbcEventWithHeight,
+    ibc_events::{IbcEvent, IbcEventWithHeight},
 };
 
 use crate::{
@@ -30,44 +31,7 @@ use std::thread;
 type SubscriptionResult = core::result::Result<Event, TendermintRpcError>;
 type SubscriptionsStream = dyn Stream<Item = SubscriptionResult> + Send + Sync + Unpin;
 
-// #[derive(Clone)]
-// pub struct EventPool {
-//     events_by_height: HashMap<Height, Vec<IbcEventWithHeight>>,
-// }
-// impl EventPool {
-//     // 在这里可以定义初始化事件池的方法，比如 new() 方法
-//     pub fn new() -> EventPool {
-//         EventPool {
-//             events_by_height: HashMap::new(),
-//         }
-//     }
 
-//     // 定义一个方法用于将事件放入事件池中
-//     pub fn add_event(&mut self, event: IbcEventWithHeight) {
-//         // 获取事件的高度
-//         let height = event.height;
-
-//         // 将事件放入对应高度的事件列表中
-//         self.events_by_height
-//             .entry(height)
-//             .or_insert(Vec::new())
-//             .push(event);
-//     }
-
-//     pub fn read_with_height(&self, height: Height) {
-//         let ep = Arc::new(self.clone());
-//         let read_thread = tokio::spawn(async move {
-//             if let Some(events) = ep.events_by_height.get(&height) {
-//                 println!("Events at height {:?}:", height);
-//                 for event in events {
-//                     println!("  {:?}", event);
-//                 }
-//             } else {
-//                 println!("No events found at height {:?}", height);
-//             }
-//         });
-//     }
-// }
 
 pub struct EventSubscriptions {
     pub client: Option<WebSocketClient>,
@@ -97,8 +61,8 @@ impl EventSubscriptions {
     //     self.driver_handle.await.unwrap();
     // }
 
-    pub async fn init_subscriptions(&mut self) -> Result<(), WsError> {
-        let (client, driver) = WebSocketClient::new("ws://127.0.0.1:26657/websocket")
+    pub async fn init_subscriptions(&mut self, url:&str) -> Result<(), WsError> {
+        let (client, driver) = WebSocketClient::new(url)
             .await
             .expect("websocket new error!");
 
@@ -144,13 +108,28 @@ impl EventSubscriptions {
                 .map_err(WsError::canceled_or_generic)
                 .try_flatten();
             let event_pool_clone = event_pool.clone();
-            let mut ev_count = 10;
+            let mut ev_count = 100;
             // println!("99999999999999999");
             while let Some(res) = events.next().await {
                 match res {
                     Ok(event) => {
                         println!("Got event: {:?}", event);
-                        let _ = event_pool_clone.write().await.push_events(vec![event]);
+                        match event.clone(){
+                            IbcEventWithHeight { event: IbcEvent::SendPacket(sendpacket), height } => {
+                                let _ = event_pool_clone.write().await.push_events(vec![event.clone()]);
+                            },
+                            IbcEventWithHeight { event: IbcEvent::ReceivePacket(receivepacket), height } =>{
+                                let _ = event_pool_clone.write().await.push_events(vec![event.clone()]);
+                            },
+                            IbcEventWithHeight { event: IbcEvent::WriteAcknowledgement(writeAcknowledgement), height } =>{
+                                let _ = event_pool_clone.write().await.push_events(vec![event.clone()]);
+                            },
+                            IbcEventWithHeight { event: IbcEvent::AcknowledgePacket(acknowledgePacket), height } =>{
+                                let _ = event_pool_clone.write().await.push_events(vec![event.clone()]);
+                            },
+                            _ => {},
+                        };
+                        
                     }
                     Err(e) => panic!("{}", e),
                 }
@@ -172,13 +151,13 @@ impl EventSubscriptions {
 #[cfg(test)]
 pub mod subscribe_tests {
 
-    use std::{sync::Arc, time::Duration};
+    use std::{str::FromStr, sync::Arc, time::Duration};
 
     use tokio::sync::RwLock;
 
-    use types::ibc_core::ics24_host::identifier::ChainId;
+    use types::ibc_core::{ics04_channel::{channel::Ordering, version::Version}, ics24_host::identifier::{ChainId, ClientId, ConnectionId, PortId}};
 
-    use crate::{event_pool::EventPool, query::websocket::subscribe::EventSubscriptions};
+    use crate::{chain::CosmosChain, chain_manager::ChainManager, channel::{Channel, ChannelSide}, event_pool::EventPool, query::websocket::subscribe::EventSubscriptions};
 
     #[tokio::test]
     pub async fn subscribe_newblock_event_works() {
@@ -192,10 +171,11 @@ pub mod subscribe_tests {
         let event_pool_clone = event_pool.clone();
         let chain_id = ChainId::default();
 
-        es.init_subscriptions().await.unwrap();
+        es.init_subscriptions("ws://10.176.35.58:26659/websocket").await.unwrap();
 
         es.listen_events(chain_id, event_pool_clone);
 
         tokio::time::sleep(Duration::from_secs(50)).await;
     }
+    
 }
