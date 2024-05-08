@@ -72,11 +72,14 @@ lazy_static! {
                 )
         )
         .subcommand(
-            Command::new("start")
-                .about("start aggregator")
-                .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
-                .arg(arg!(-t --target <TARGET_CHAIN_ID>))
-                .arg_required_else_help(true),
+            Command::new("aggregator")
+                .about("aggregator operations")
+                // .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
+                // .arg(arg!(-t --target <TARGET_CHAIN_ID>))
+                .arg_required_else_help(true)
+                .subcommand(
+                    Command::new("start").about("start chain managers")
+                ),
         );
     static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands();
 }

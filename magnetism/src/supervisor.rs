@@ -11,7 +11,7 @@ use cosmos_chain::{
     error::Error,
     registered_chains::RegisteredChains,
 };
-use tokio::runtime::Runtime;
+use tokio::{runtime::Runtime, sync::RwLock};
 use types::{
     ibc_core::{
         ics04_channel::{channel::Ordering, packet::Packet, version::Version},
@@ -24,7 +24,7 @@ use crate::cmd_matches::before_cmd_match;
 
 pub struct Supervisor {
     registered_chains: RegisteredChains,
-    channel_pool: ChannelPool,
+    channel_pool: Arc<RwLock<ChannelPool>>,
     chain_managers: HashMap<ChainId, ChainManager>,
     // rt: Arc<Runtime>,
 }
@@ -33,7 +33,7 @@ impl Supervisor {
     pub fn new() -> Self {
         Self {
             registered_chains: RegisteredChains::new(),
-            channel_pool: ChannelPool::new(),
+            channel_pool: Arc::new(RwLock::new(ChannelPool::new())),
             chain_managers: HashMap::new(),
             // rt: Arc::new(Runtime::new().unwrap()),
         }
@@ -52,16 +52,22 @@ impl Supervisor {
     //     self.registered_chains.add_chain(chain)
     // }
 
-    pub fn search_channel_by_key(&self, key: &str) -> Option<&Channel> {
-        self.channel_pool.query_channel_by_key(key)
+    pub async fn search_channel_by_key(&self, key: &str) -> Option<Channel> {
+        self.channel_pool.read().await.query_channel_by_key(key)
     }
 
-    pub fn search_channel_by_packet(&self, packet: &Packet) -> Result<Option<&Channel>, Error> {
-        self.channel_pool.query_channel_by_packet(packet)
+    pub async fn search_channel_by_packet(
+        &self,
+        packet: &Packet,
+    ) -> Result<Option<Channel>, Error> {
+        self.channel_pool
+            .read()
+            .await
+            .query_channel_by_packet(packet)
     }
 
-    pub fn add_channel(&mut self, channel: Channel) {
-        let r = self.channel_pool.add_channel(channel);
+    pub async fn add_channel(&mut self, channel: Channel) {
+        let r = self.channel_pool.write().await.add_channel(channel);
         if let Err(e) = r {
             eprintln!("[add_channel]: {:?}", e);
         }
@@ -87,6 +93,10 @@ impl Supervisor {
     fn register_chain(&mut self, config_path: &str) -> Result<ChainId, Error> {
         let chain = CosmosChain::new(config_path);
         self.registered_chains.add_chain(&chain);
+
+        let cm = ChainManager::new(chain.id());
+
+        self.add_chain_manager(cm);
 
         Ok(chain.id())
     }
@@ -139,11 +149,8 @@ impl Supervisor {
 
         connection_side_a.connection_id = None;
         connection_side_b.connection_id = None;
-        let mut connection = Connection::new(
-            connection_side_a,
-            connection_side_b,
-            Duration::from_secs(100),
-        );
+        let mut connection =
+            Connection::new(connection_side_a, connection_side_b, Duration::from_secs(0));
 
         connection.handshake().await?;
 
@@ -180,7 +187,6 @@ impl Supervisor {
             Some(target.version),
         );
 
-
         let mut channel = Channel {
             ordering: Ordering::Unordered,
             side_a: channel_side_a,
@@ -192,6 +198,25 @@ impl Supervisor {
         channel.handshake().await?;
 
         Ok(channel)
+    }
+
+    async fn start(&mut self) {
+        let chains = self.registered_chains.clone();
+        for (_, cm) in &mut self.chain_managers {
+            let chain = chains.get_chain_by_id(&cm.chain_id());
+
+            let mut url = String::new();
+            if let Some(chain) = chain {
+                let u = format!("ws://{}/websocket", chain.config.tendermint_rpc_addr);
+                url = u.clone();
+            }
+
+            cm.init(url.as_str()).await;
+            cm.listen_events_start();
+
+            let channels = self.channel_pool.clone();
+            cm.events_handler(channels);
+        }
     }
 
     async fn cmd_match(&mut self, matches: &ArgMatches) -> Result<(), Error> {
@@ -371,21 +396,33 @@ impl Supervisor {
                         println!("Channel create successful!");
                         println!("[Channel]:");
                         println!("{}", c);
-                        
+
+                        let c2 = c.flipped();
+                        self.add_channel(c).await;
+                        self.add_channel(c2).await;
                     }
 
                     _ => unreachable!(),
                 }
             }
-            Some(("start", sub_matches)) => {
-                let source_chain = sub_matches.get_one::<String>("source");
-                let target_chain = sub_matches.get_one::<String>("target");
-                println!();
-                println!("[Chain Manager start]:");
-                println!(
-                    "Source_Chain({:?}) -- Target_Chain({:?})",
-                    source_chain, target_chain
-                );
+            Some(("aggregator", sub_matches)) => {
+                let chain_command = sub_matches.subcommand().unwrap();
+                match chain_command {
+                    ("start", sub_matches) => {
+                        // let source_chain = sub_matches.get_one::<String>("source");
+                        // let target_chain = sub_matches.get_one::<String>("target");
+                        println!();
+                        println!("All chain managers start!!!");
+                        // println!(
+                        //     "Source_Chain({:?}) -- Target_Chain({:?})",
+                        //     source_chain, target_chain
+                        // );
+
+                        self.start().await;
+                    }
+
+                    _ => unreachable!(),
+                }
             }
             _ => unreachable!(),
         }

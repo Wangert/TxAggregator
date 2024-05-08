@@ -39,11 +39,11 @@ impl ChannelPool {
         Ok(())
     }
 
-    pub fn query_channel_by_key(&self, key: &str) -> Option<&Channel> {
-        self.channels.get(key)
+    pub fn query_channel_by_key(&self, key: &str) -> Option<Channel> {
+        self.channels.get(key).cloned()
     }
 
-    pub fn query_channel_by_packet(&self, packet: &Packet) -> Result<Option<&Channel>, Error> {
+    pub fn query_channel_by_packet(&self, packet: &Packet) -> Result<Option<Channel>, Error> {
         let channel_key = ChannelKey {
             source_channel_id: Some(packet.source_channel.clone()),
             source_port_id: Some(packet.source_port.clone()),
@@ -56,7 +56,7 @@ impl ChannelPool {
 
         let v = self.channels.get(&k);
 
-        Ok(v)
+        Ok(v.cloned())
     }
 }
 
@@ -164,8 +164,7 @@ pub mod channel_pool_tests {
                         let c = channel_pool_clone
                             .lock()
                             .await
-                            .query_channel_by_key(&key)
-                            .cloned();
+                            .query_channel_by_key(&key);
 
                         println!("{:?}", c);
                     }

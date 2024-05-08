@@ -32,18 +32,22 @@ pub struct ChainManager {
 impl ChainManager {
     pub fn new(
         chain_id: ChainId,
-        event_subscriptions: EventSubscriptions,
-        event_pool: EventPool,
+        // event_subscriptions: EventSubscriptions,
+        // event_pool: EventPool,
     ) -> Self {
         Self {
             chain_id,
-            event_subscriptions,
-            event_pool: Arc::new(RwLock::new(event_pool)),
+            event_subscriptions: EventSubscriptions::new(),
+            event_pool: Arc::new(RwLock::new(EventPool::new())),
         }
     }
 
     pub fn chain_id(&self) -> ChainId {
         self.chain_id.clone()
+    }
+
+    pub async fn init(&mut self, url: &str) {
+        self.event_subscriptions.init_subscriptions(url).await.unwrap();
     }
 
     pub fn listen_events_start(&mut self) {
@@ -55,7 +59,7 @@ impl ChainManager {
 
     pub async fn read(&self) {
         loop {
-            let event = self.event_pool.read().await.read_latest_event();
+            let event = self.event_pool.write().await.read_latest_event();
             // match event {
             //     Some(IbcEventWithHeight { event: IbcEvent::NewBlock(_), .. }) => {
             //         println!("1111");
@@ -67,49 +71,65 @@ impl ChainManager {
         }
     }
 
-    pub async fn events_handler(&mut self, channels: Arc<RwLock<ChannelPool>>) {
-        loop {
-            let event = self.event_pool.read().await.read_latest_event();
+    pub fn events_handler(&mut self, channels: Arc<RwLock<ChannelPool>>) {
+        let ep = self.event_pool.clone();
+        let chain_id = self.chain_id();
+        tokio::spawn(async move {
+            loop {
+                let event = ep.write().await.read_latest_event();
 
-            if let Some(event_with_height) = event {
-                match event_with_height.event {
-                    IbcEvent::SendPacket(send_packet) => {
-                        let channel_result =
-                            search_channel(channels.clone(), &send_packet.packet).await;
-                        match channel_result {
-                            Ok(chan) => {
-                                send_packet_handler_task(chan, send_packet.packet, event_with_height.height);
-                            }
-                            Err(e) => {
-                                eprintln!("channel read error: {:?}", e);
-                                continue;
-                            }
-                        }
-                    }
-                    IbcEvent::WriteAcknowledgement(write_ack) => {
-                        let channel_result =
-                            search_channel(channels.clone(), &write_ack.packet).await;
-                        match channel_result {
-                            Ok(chan) => {
-                                write_acknowlegment_handler_task(chan, write_ack, event_with_height.height);
-                            }
-                            Err(e) => {
-                                eprintln!("channel read error: {:?}", e);
-                                continue;
+                if let Some(event_with_height) = event {
+                    match event_with_height.event {
+                        IbcEvent::SendPacket(send_packet) => {
+                            let channel_result =
+                                search_channel(channels.clone(), &send_packet.packet).await;
+                            match channel_result {
+                                Ok(chan) => {
+                                    send_packet_handler_task(
+                                        chain_id.clone(),
+                                        chan,
+                                        send_packet.packet,
+                                        event_with_height.height,
+                                    );
+                                }
+                                Err(e) => {
+                                    eprintln!("channel read error: {:?}", e);
+                                    continue;
+                                }
                             }
                         }
-                    }
-                    IbcEvent::AcknowledgePacket(ack_packet) => {
-                        println!("Ack Packet: {:?}", ack_packet);
-                    }
-                    _ => {
-                        continue;
-                    }
+                        IbcEvent::WriteAcknowledgement(write_ack) => {
+                            let channel_result =
+                                search_channel(channels.clone(), &write_ack.packet).await;
+                            match channel_result {
+                                Ok(chan) => {
+                                    write_acknowlegment_handler_task(
+                                        chain_id.clone(),
+                                        chan.flipped(),
+                                        write_ack,
+                                        event_with_height.height,
+                                    );
+                                }
+                                Err(e) => {
+                                    eprintln!("channel read error: {:?}", e);
+                                    continue;
+                                }
+                            }
+                        }
+                        IbcEvent::AcknowledgePacket(ack_packet) => {
+                            println!("[[CHAIN:{:?}]] Ack Packet: {:?}", chain_id, ack_packet);
+                        }
+                        _ => {
+                            continue;
+                        }
+                    };
+                } else {
+                    // println!("no event");
                 };
-            } else {
-                println!("no event");
-            };
-        }
+
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        });
     }
 
     // pub async fn read_send_packet(&self, channel_pool: Arc<RwLock<ChannelPool>>) {
@@ -155,13 +175,13 @@ impl ChainManager {
     // }
 }
 
-fn send_packet_handler_task(channel: Channel, packet: Packet, height: Height) {
+fn send_packet_handler_task(chain_id: ChainId, channel: Channel, packet: Packet, height: Height) {
+
     tokio::spawn(async move {
-        let ibc_events =
-            send_packet_handler(&channel, &packet, height).await;
+        let ibc_events = send_packet_handler(&channel, &packet, height).await;
         match ibc_events {
             Ok(events) => {
-                println!("[Events_Handler] Events: {:?}", events);
+                println!("[[CHAIN:{:?}]] Events_Handler Events: {:?}", chain_id, events);
             }
             Err(e) => {
                 eprintln!("send packet handler error: {:?}", e);
@@ -182,6 +202,20 @@ async fn send_packet_handler(
         .build_recv_packet(&packet, target_signer, height)
         .await?;
 
+    // tokio::time::sleep(Duration::from_secs(5)).await;
+    let query_height = channel.source_chain().query_latest_height().await.unwrap();
+    // Build message(s) to update client on target chain
+    let target_update_client_msgs = channel
+        .build_update_client_on_target_chain(query_height + 1)
+        .await?;
+
+    let update_event = channel
+        .target_chain()
+        .send_messages_and_wait_commit(target_update_client_msgs)
+        .await?;
+
+    // println!("Update Event: {:?}", update_event);
+
     let events = channel
         .target_chain()
         .send_messages_and_wait_commit(msgs)
@@ -191,19 +225,19 @@ async fn send_packet_handler(
 }
 
 fn write_acknowlegment_handler_task(
+    chain_id: ChainId,
     channel: Channel,
     write_ack: WriteAcknowledgement,
     height: Height,
 ) {
     tokio::spawn(async move {
-        let ibc_events =
-            write_acknowlegmenet_handler(&channel, &write_ack, height).await;
+        let ibc_events = write_acknowlegmenet_handler(&channel, &write_ack, height).await;
         match ibc_events {
             Ok(events) => {
-                println!("[Events_Handler] Events: {:?}", events);
+                println!("[[CHAIN:{:?}]] Events_Handler Events: {:?}", chain_id, events);
             }
             Err(e) => {
-                eprintln!("send packet handler error: {:?}", e);
+                eprintln!("write acknowlegment handler error: {:?}", e);
             }
         }
     });
@@ -220,6 +254,21 @@ async fn write_acknowlegmenet_handler(
         .source_chain()
         .build_ack_packet(write_ack, &height, target_signer)
         .await?;
+
+    // tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let query_height = channel.source_chain().query_latest_height().await.unwrap();
+    // Build message(s) to update client on target chain
+    let target_update_client_msgs = channel
+        .build_update_client_on_target_chain(query_height + 1)
+        .await?;
+
+    let update_event = channel
+        .target_chain()
+        .send_messages_and_wait_commit(target_update_client_msgs)
+        .await?;
+
+    // println!("Update Event: {:?}", update_event);
 
     let events = channel
         .target_chain()
@@ -254,20 +303,23 @@ pub mod chain_manager_tests {
     use types::ibc_core::ics02_client::height::Height;
     use types::ibc_core::ics04_channel::channel::Ordering;
     use types::ibc_core::ics04_channel::version::Version;
-    use types::ibc_core::ics24_host::identifier::{ChainId, ClientId, ConnectionId, PortId};
+    use types::ibc_core::ics24_host::identifier::{
+        ChainId, ChannelId, ClientId, ConnectionId, PortId,
+    };
 
     use crate::chain::CosmosChain;
     use crate::chain_manager::ChainManager;
     use crate::channel::{Channel, ChannelSide};
+    use crate::channel_pool::ChannelPool;
     use crate::event_pool::EventPool;
     use crate::query::websocket::subscribe::EventSubscriptions;
 
     #[tokio::test]
     pub async fn subscribe_works() {
         let chain_id = ChainId::default();
-        let es = EventSubscriptions::new();
-        let ep = EventPool::new();
-        let mut cm = ChainManager::new(chain_id, es, ep);
+        // let es = EventSubscriptions::new();
+        // let ep = EventPool::new();
+        let mut cm = ChainManager::new(chain_id);
 
         _ = cm
             .event_subscriptions
@@ -277,6 +329,137 @@ pub mod chain_manager_tests {
 
         cm.read().await;
         // cm.read_send_packet().await;
+    }
+
+    #[tokio::test]
+    pub async fn events_handler_works() {
+        let a_file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+        let b_file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+
+        let cosmos_chain_a = CosmosChain::new(a_file_path);
+        let cosmos_chain_b = CosmosChain::new(b_file_path);
+
+        let channel_side_a = ChannelSide::new(
+            cosmos_chain_a,
+            ClientId::from_str("07-tendermint-22").unwrap(),
+            ConnectionId::from_str("connection-22").unwrap(),
+            PortId::from_str("blog").unwrap(),
+            None,
+            Some(Version("blog-1".to_string())),
+        );
+
+        let channel_side_b = ChannelSide::new(
+            cosmos_chain_b,
+            ClientId::from_str("07-tendermint-13").unwrap(),
+            ConnectionId::from_str("connection-18").unwrap(),
+            PortId::from_str("blog").unwrap(),
+            None,
+            Some(Version("blog-1".to_string())),
+        );
+
+        let mut channel = Channel {
+            ordering: Ordering::Unordered,
+            side_a: channel_side_a,
+            side_b: channel_side_b,
+            connection_delay: Duration::from_secs(100),
+        };
+
+        let result = channel.handshake().await;
+        println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
+        match result {
+            Ok(events) => println!("Event: {:?}", events),
+            Err(e) => println!("{:?}", e),
+        }
+
+        let chain_id = channel.source_chain().id();
+
+        let mut channel_pool = ChannelPool::new();
+        channel_pool
+            .add_channel(channel)
+            .expect("add channel error");
+
+        // let signer = channel.target_chain().account().get_signer().unwrap();
+        // let es = EventSubscriptions::new();
+        // let ep = EventPool::new();
+        let mut cm = ChainManager::new(chain_id);
+
+        _ = cm
+            .event_subscriptions
+            .init_subscriptions("ws://127.0.0.1:26657/websocket")
+            .await;
+        cm.listen_events_start();
+
+        let channels = Arc::new(RwLock::new(channel_pool));
+        cm.events_handler(channels);
+
+        loop {
+            
+        }
+    }
+
+    #[tokio::test]
+    pub async fn events_handler_b_works() {
+        let a_file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+        let b_file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+
+        let cosmos_chain_a = CosmosChain::new(a_file_path);
+        let cosmos_chain_b = CosmosChain::new(b_file_path);
+
+        let channel_side_a = ChannelSide::new(
+            cosmos_chain_a,
+            ClientId::from_str("07-tendermint-22").unwrap(),
+            ConnectionId::from_str("connection-22").unwrap(),
+            PortId::from_str("blog").unwrap(),
+            Some(ChannelId::new(25)),
+            Some(Version("blog-1".to_string())),
+        );
+
+        let channel_side_b = ChannelSide::new(
+            cosmos_chain_b,
+            ClientId::from_str("07-tendermint-13").unwrap(),
+            ConnectionId::from_str("connection-18").unwrap(),
+            PortId::from_str("blog").unwrap(),
+            Some(ChannelId::new(22)),
+            Some(Version("blog-1".to_string())),
+        );
+
+        let mut channel = Channel {
+            ordering: Ordering::Unordered,
+            side_a: channel_side_a,
+            side_b: channel_side_b,
+            connection_delay: Duration::from_secs(100),
+        };
+
+        let chain_id = channel.target_chain().id();
+
+        let mut channel_pool = ChannelPool::new();
+        channel_pool
+            .add_channel(channel)
+            .expect("add channel error");
+
+        // let signer = channel.target_chain().account().get_signer().unwrap();
+        // let es = EventSubscriptions::new();
+        // let ep = EventPool::new();
+        let mut cm = ChainManager::new(chain_id);
+
+        _ = cm
+            .event_subscriptions
+            .init_subscriptions("ws://127.0.0.1:26659/websocket")
+            .await;
+        cm.listen_events_start();
+
+        let channels = Arc::new(RwLock::new(channel_pool));
+        cm.events_handler(channels);
+
+
+
+        loop {
+            
+        }
     }
 
     // #[tokio::test]

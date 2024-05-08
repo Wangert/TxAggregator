@@ -6,6 +6,7 @@ use types::ibc_core::ics24_host::identifier::ChainId;
 
 use crate::chain::CosmosChain;
 
+#[derive(Debug, Clone)]
 pub struct RegisteredChains {
     chains: HashMap<ChainId, CosmosChain>,
     count: u64,
