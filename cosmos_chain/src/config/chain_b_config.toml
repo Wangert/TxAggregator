@@ -1,13 +1,13 @@
 chain_id = "firstchain-2"
 # grpc address
-# grpc_addr = "http://0.0.0.0:9092"
-grpc_addr = "http://10.176.35.58:9092"
+grpc_addr = "http://127.0.0.1:9092"
+# grpc_addr = "http://10.176.35.58:9092"
 # tendermint rpc address
-# tendermint_rpc_addr = "http://0.0.0.0:26659"
-tendermint_rpc_addr = "http://10.176.35.58:26659"
+tendermint_rpc_addr = "127.0.0.1:26659"
+# tendermint_rpc_addr = "http://10.176.35.58:26659"
 # blockchain API
-# blockchain_api_addr = "http://0.0.0.0:1318"
-blockchain_api_addr = "http://10.176.35.58:1318"
+blockchain_api_addr = "http://127.0.0.1:1318"
+# blockchain_api_addr = "http://10.176.35.58:1318"
 
 # Set rpc timeout (s)
 rpc_timeout = 10
@@ -17,9 +17,8 @@ rpc_timeout = 10
 # crash_duration = 30000
 # malicious_duration = 20000
 
-# chain_key_path = "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/ibcblog_key_b.toml"
-# chain_key_path = "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/key_b.toml"
-chain_key_path = "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/ibcblog_key_b.toml"
+chain_key_path = "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/ibcblog_key_b.toml"
+# chain_key_path = "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/ibcblog_key_b.toml"
 
 hd_path = "m/44'/118'/0'/0/0"
 

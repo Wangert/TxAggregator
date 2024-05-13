@@ -4,7 +4,8 @@ use tendermint_rpc::{HttpClient, Client};
 pub fn tendermint_rpc_client(rpc_addr: &str) -> HttpClient {
     trace!("tendermint rpc connect");
 
-    let client = match HttpClient::new(rpc_addr) {
+    let addr = format!("http://{}", rpc_addr);
+    let client = match HttpClient::new(addr.as_str()) {
         Ok(client) => client,
         Err(e) => panic!("tendermint rpc connect error: {:?}", e),
     };

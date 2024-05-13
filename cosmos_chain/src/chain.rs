@@ -462,12 +462,23 @@ impl CosmosChain {
     }
 
     pub async fn query_latest_height(&self) -> Result<Height, Error> {
-        let latest_block_results = self.query_latest_block_results().await?;
-        let block_header = self.query_block(latest_block_results.height).await?.header;
-        let revision_number = ChainId::chain_version(block_header.chain_id.as_str());
-        let revision_height = u64::from(self.query_latest_block_results().await?.height);
+        let mut h = Height::new(1, 1).unwrap();
+        // let latest_block_results = self.query_latest_block_results().await?;
 
-        Height::new(revision_number, revision_height).map_err(Error::type_error)
+        loop {
+            if let Ok(latest_block_results) = self.query_latest_block_results().await {
+                if let Ok(block) = self.query_block(latest_block_results.height).await {
+                    let revision_number = ChainId::chain_version(block.header.chain_id.as_str());
+                    let revision_height = u64::from(latest_block_results.height);
+    
+                    h = Height::new(revision_number, revision_height).map_err(Error::type_error)?;
+                    break;
+                }
+            }
+            
+        }
+
+        Ok(h)
     }
 
     pub async fn query_client_consensus_state(
@@ -585,7 +596,7 @@ impl CosmosChain {
                 &packet.source_port,
                 &packet.source_channel,
                 &packet.sequence,
-                QueryHeight::Latest,
+                QueryHeight::Specific(height),
                 true,
             )
             .await?;
@@ -619,7 +630,7 @@ impl CosmosChain {
                 write_ack.dst_port_id(),
                 write_ack.dst_channel_id(),
                 write_ack.sequence(),
-                QueryHeight::Latest,
+                QueryHeight::Specific(height.clone()),
                 true,
             )
             .await?;
@@ -1095,6 +1106,4 @@ pub mod chain_tests {
             Err(e) => panic!("{}", e),
         }
     }
-
-    
 }

@@ -17,10 +17,11 @@ use types::{
 };
 
 use crate::{
-    event_pool::EventPool, query::websocket::{
+    event_pool::EventPool,
+    query::websocket::{
         collect_event::{self, collect_events},
         error::WsError,
-    }
+    },
 };
 
 use tendermint_rpc::error::Error as TendermintRpcError;
@@ -30,8 +31,6 @@ use std::thread;
 
 type SubscriptionResult = core::result::Result<Event, TendermintRpcError>;
 type SubscriptionsStream = dyn Stream<Item = SubscriptionResult> + Send + Sync + Unpin;
-
-
 
 pub struct EventSubscriptions {
     pub client: Option<WebSocketClient>,
@@ -61,7 +60,7 @@ impl EventSubscriptions {
     //     self.driver_handle.await.unwrap();
     // }
 
-    pub async fn init_subscriptions(&mut self, url:&str) -> Result<(), WsError> {
+    pub async fn init_subscriptions(&mut self, url: &str) -> Result<(), WsError> {
         let (client, driver) = WebSocketClient::new(url)
             .await
             .expect("websocket new error!");
@@ -98,12 +97,13 @@ impl EventSubscriptions {
         let driver_handle = core::mem::replace(&mut self.driver_handle, tokio::spawn(async {}));
         let client = self.client();
 
+        let cid = chain_id.clone();
         tokio::spawn(async move {
             // let chain_id = ChainId::default();
             let mut events = subs
                 .map_ok(move |rpc_event| {
-                    trace!(chain = %chain_id, "received an RPC event: {}", rpc_event.query);
-                    collect_events(&chain_id, rpc_event)
+                    trace!(chain = %cid, "received an RPC event: {}", rpc_event.query);
+                    collect_events(&cid, rpc_event)
                 })
                 .map_err(WsError::canceled_or_generic)
                 .try_flatten();
@@ -113,23 +113,46 @@ impl EventSubscriptions {
             while let Some(res) = events.next().await {
                 match res {
                     Ok(event) => {
-                        println!("Got event: {:?}", event);
-                        match event.clone(){
-                            IbcEventWithHeight { event: IbcEvent::SendPacket(sendpacket), height } => {
-                                let _ = event_pool_clone.write().await.push_events(vec![event.clone()]);
-                            },
-                            IbcEventWithHeight { event: IbcEvent::ReceivePacket(receivepacket), height } =>{
-                                let _ = event_pool_clone.write().await.push_events(vec![event.clone()]);
-                            },
-                            IbcEventWithHeight { event: IbcEvent::WriteAcknowledgement(writeAcknowledgement), height } =>{
-                                let _ = event_pool_clone.write().await.push_events(vec![event.clone()]);
-                            },
-                            IbcEventWithHeight { event: IbcEvent::AcknowledgePacket(acknowledgePacket), height } =>{
-                                let _ = event_pool_clone.write().await.push_events(vec![event.clone()]);
-                            },
-                            _ => {},
+                        println!("[[CHAIN:{:?}]] Got event: {:?}", chain_id, event);
+                        match event.clone() {
+                            IbcEventWithHeight {
+                                event: IbcEvent::SendPacket(sendpacket),
+                                height,
+                            } => {
+                                let _ = event_pool_clone
+                                    .write()
+                                    .await
+                                    .push_events(vec![event.clone()]);
+                            }
+                            IbcEventWithHeight {
+                                event: IbcEvent::ReceivePacket(receivepacket),
+                                height,
+                            } => {
+                                let _ = event_pool_clone
+                                    .write()
+                                    .await
+                                    .push_events(vec![event.clone()]);
+                            }
+                            IbcEventWithHeight {
+                                event: IbcEvent::WriteAcknowledgement(writeAcknowledgement),
+                                height,
+                            } => {
+                                let _ = event_pool_clone
+                                    .write()
+                                    .await
+                                    .push_events(vec![event.clone()]);
+                            }
+                            IbcEventWithHeight {
+                                event: IbcEvent::AcknowledgePacket(acknowledgePacket),
+                                height,
+                            } => {
+                                let _ = event_pool_clone
+                                    .write()
+                                    .await
+                                    .push_events(vec![event.clone()]);
+                            }
+                            _ => {}
                         };
-                        
                     }
                     Err(e) => panic!("{}", e),
                 }
@@ -155,9 +178,18 @@ pub mod subscribe_tests {
 
     use tokio::sync::RwLock;
 
-    use types::ibc_core::{ics04_channel::{channel::Ordering, version::Version}, ics24_host::identifier::{ChainId, ClientId, ConnectionId, PortId}};
+    use types::ibc_core::{
+        ics04_channel::{channel::Ordering, version::Version},
+        ics24_host::identifier::{ChainId, ClientId, ConnectionId, PortId},
+    };
 
-    use crate::{chain::CosmosChain, chain_manager::ChainManager, channel::{Channel, ChannelSide}, event_pool::EventPool, query::websocket::subscribe::EventSubscriptions};
+    use crate::{
+        chain::CosmosChain,
+        chain_manager::ChainManager,
+        channel::{Channel, ChannelSide},
+        event_pool::EventPool,
+        query::websocket::subscribe::EventSubscriptions,
+    };
 
     #[tokio::test]
     pub async fn subscribe_newblock_event_works() {
@@ -171,11 +203,12 @@ pub mod subscribe_tests {
         let event_pool_clone = event_pool.clone();
         let chain_id = ChainId::default();
 
-        es.init_subscriptions("ws://10.176.35.58:26659/websocket").await.unwrap();
+        es.init_subscriptions("ws://10.176.35.58:26659/websocket")
+            .await
+            .unwrap();
 
         es.listen_events(chain_id, event_pool_clone);
 
         tokio::time::sleep(Duration::from_secs(50)).await;
     }
-    
 }

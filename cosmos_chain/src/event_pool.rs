@@ -26,7 +26,10 @@ impl EventPool {
         ibc_events
     }
 
-    pub fn read_latest_event(&self) -> Option<IbcEventWithHeight> {
-        self.ibc_events.last().cloned()
+    pub fn read_latest_event(&mut self) -> Option<IbcEventWithHeight> {
+        let event = self.ibc_events.last().cloned();
+        self.ibc_events.pop();
+
+        event
     }
 }
