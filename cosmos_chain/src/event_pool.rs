@@ -45,8 +45,11 @@ impl EventPool {
                     match channel_key_result {
                         Ok(k) => (
                             SEND_PACKET_EVENT,
-                            self.ibc_events_class
-                                .get_mut(&(SEND_PACKET_EVENT, event_height, k.clone())),
+                            self.ibc_events_class.get_mut(&(
+                                SEND_PACKET_EVENT,
+                                event_height,
+                                k.clone(),
+                            )),
                             k,
                         ),
                         Err(e) => {
@@ -60,8 +63,11 @@ impl EventPool {
                     match channel_key_result {
                         Ok(k) => (
                             WRITE_ACK_EVENT,
-                            self.ibc_events_class
-                                .get_mut(&(SEND_PACKET_EVENT, event_height, k.clone())),
+                            self.ibc_events_class.get_mut(&(
+                                SEND_PACKET_EVENT,
+                                event_height,
+                                k.clone(),
+                            )),
                             k,
                         ),
                         Err(e) => {
@@ -76,13 +82,16 @@ impl EventPool {
             if let Some(events) = events_option {
                 events.append(vec![event.clone()].as_mut());
             } else {
-                self.ibc_events_class
-                    .insert((event_type, event_height, channel_key.clone()), vec![event.clone()]);
+                self.ibc_events_class.insert(
+                    (event_type, event_height, channel_key.clone()),
+                    vec![event.clone()],
+                );
             }
 
             if let Some(h) = self.next_heights.get(&(event_type, channel_key.clone())) {
                 if event_height < *h {
-                    self.next_heights.insert((event_type, channel_key), event_height);
+                    self.next_heights
+                        .insert((event_type, channel_key), event_height);
                 }
             }
         });
@@ -110,7 +119,10 @@ impl EventPool {
     ) -> Vec<IbcEventWithHeight> {
         let mut next_events = vec![];
         if let Some(h) = self.next_heights.get(&(event_type, channel_key.clone())) {
-            if let Some(events) = self.ibc_events_class.get_mut(&(event_type, *h, channel_key)) {
+            if let Some(events) = self
+                .ibc_events_class
+                .get_mut(&(event_type, *h, channel_key))
+            {
                 if events.len() < num {
                     next_events = events.clone();
                 } else {
