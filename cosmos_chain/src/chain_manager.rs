@@ -18,7 +18,7 @@ use types::{
 
 //wjt
 use crate::{
-    channel::Channel, channel_pool::ChannelPool, error::Error, event_pool::EventPool,
+    channel::Channel, channel_pool::ChannelPool, error::Error, event_pool::{EventPool, SEND_PACKET_EVENT, WRITE_ACK_EVENT},
     query::websocket::subscribe::EventSubscriptions,
 };
 // use crate::query::websocket::subscribe::{EventPool, EventSubscriptions};
@@ -47,7 +47,10 @@ impl ChainManager {
     }
 
     pub async fn init(&mut self, url: &str) {
-        self.event_subscriptions.init_subscriptions(url).await.unwrap();
+        self.event_subscriptions
+            .init_subscriptions(url)
+            .await
+            .unwrap();
     }
 
     pub fn listen_events_start(&mut self) {
@@ -132,56 +135,120 @@ impl ChainManager {
         });
     }
 
-    // pub async fn read_send_packet(&self, channel_pool: Arc<RwLock<ChannelPool>>) {
-    //     loop {
-    //         let event = self.event_pool.read().await.read_latest_event();
-    //         let channel_pool_clone = channel_pool.clone();
-    //         if let Some(event_with_height) = event {
-    //             match event_with_height.event {
-    //                 IbcEvent::SendPacket(sendpacket) => {
-    //                     return (sendpacket.packet, event_with_height.height);
-    //                     // let sp = sendpacket.packet.clone();
-    //                     // tokio::spawn(async move {
+    pub fn events_aggregate_send_packet_handler(&mut self, channels: Arc<RwLock<ChannelPool>>) {
+        let ep = self.event_pool.clone();
+        let chain_id = self.chain_id();
+        tokio::spawn(async move {
+            loop {
 
-    //                     // });
-    //                 }
-    //                 _ => {
-    //                     println!("other event");
-    //                 }
-    //             };
-    //         } else {
-    //             println!("no event");
-    //         };
-    //         time::sleep(Duration::from_secs(2)).await;
-    //     }
-    // }
-    // pub async fn read_ack_packet(&self) -> (WriteAcknowledgement, Height) {
-    //     loop {
-    //         let event = self.event_pool.read().await.read_latest_event();
-    //         if let Some(event_with_height) = event {
-    //             match event_with_height.event {
-    //                 IbcEvent::WriteAcknowledgement(writeAcknowledgement) => {
-    //                     return (writeAcknowledgement, event_with_height.height);
-    //                 }
-    //                 _ => {
-    //                     println!("other event");
-    //                 }
-    //             };
-    //         } else {
-    //             println!("no event");
-    //         };
-    //         time::sleep(Duration::from_secs(2)).await;
-    //     }
-    // }
+                let channel_keys = channels.read().await.all_channel_keys();
+                for k in channel_keys {
+                    let events = ep.write().await.read_next_events(SEND_PACKET_EVENT, 100, k.clone());
+
+                    let channel_result = search_channel_by_key(channels.clone(), k.as_str()).await;
+
+                    match channel_result {
+                        Ok(chan) => {
+                            send_packet_aggregate_handler_task(
+                                chain_id.clone(),
+                                chan,
+                                events,
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("channel read error: {:?}", e);
+                            continue;
+                        }
+                    }
+                }
+
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        });
+    }
+
+    pub fn events_aggregate_write_ack_handler(&mut self, channels: Arc<RwLock<ChannelPool>>) {
+        let ep = self.event_pool.clone();
+        let chain_id = self.chain_id();
+        tokio::spawn(async move {
+            loop {
+
+                let channel_keys = channels.read().await.all_channel_keys();
+                for k in channel_keys {
+                    let events = ep.write().await.read_next_events(WRITE_ACK_EVENT, 100, k.clone());
+
+                    let channel_result = search_channel_by_key(channels.clone(), k.as_str()).await;
+
+                    match channel_result {
+                        Ok(chan) => {
+                            send_packet_aggregate_handler_task(
+                                chain_id.clone(),
+                                chan.flipped(),
+                                events,
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("channel read error: {:?}", e);
+                            continue;
+                        }
+                    }
+                }
+
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        });
+    }
+
+
+}
+
+fn send_packet_aggregate_handler_task(chain_id: ChainId, channel: Channel, send_packet_events: Vec<IbcEventWithHeight>) {
+    tokio::spawn(async move {
+
+        todo!()
+        // let ibc_events = send_packet_handler(&channel, &packet, height).await;
+        // match ibc_events {
+        //     Ok(events) => {
+        //         println!(
+        //             "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
+        //             chain_id, events
+        //         );
+        //     }
+        //     Err(e) => {
+        //         eprintln!("send packet handler error: {:?}", e);
+        //     }
+        // }
+    });
+}
+
+fn write_acknowlegment_aggregate_handler_task(chain_id: ChainId, channel: Channel, send_packet_events: Vec<IbcEventWithHeight>) {
+    tokio::spawn(async move {
+
+        todo!()
+        // let ibc_events = send_packet_handler(&channel, &packet, height).await;
+        // match ibc_events {
+        //     Ok(events) => {
+        //         println!(
+        //             "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
+        //             chain_id, events
+        //         );
+        //     }
+        //     Err(e) => {
+        //         eprintln!("send packet handler error: {:?}", e);
+        //     }
+        // }
+    });
 }
 
 fn send_packet_handler_task(chain_id: ChainId, channel: Channel, packet: Packet, height: Height) {
-
     tokio::spawn(async move {
         let ibc_events = send_packet_handler(&channel, &packet, height).await;
         match ibc_events {
             Ok(events) => {
-                println!("[[CHAIN:{:?}]] Events_Handler Events: {:?}", chain_id, events);
+                println!(
+                    "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
+                    chain_id, events
+                );
             }
             Err(e) => {
                 eprintln!("send packet handler error: {:?}", e);
@@ -234,7 +301,10 @@ fn write_acknowlegment_handler_task(
         let ibc_events = write_acknowlegmenet_handler(&channel, &write_ack, height).await;
         match ibc_events {
             Ok(events) => {
-                println!("[[CHAIN:{:?}]] Events_Handler Events: {:?}", chain_id, events);
+                println!(
+                    "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
+                    chain_id, events
+                );
             }
             Err(e) => {
                 eprintln!("write acknowlegment handler error: {:?}", e);
@@ -284,6 +354,16 @@ async fn search_channel(
 ) -> Result<Channel, Error> {
     let channel_read = channels.read().await;
     let channel = channel_read.query_channel_by_packet(packet)?;
+
+    match channel {
+        Some(chan) => Ok(chan.clone()),
+        None => Err(Error::empty_channel()),
+    }
+}
+
+async fn search_channel_by_key(channels: Arc<RwLock<ChannelPool>>, channel_key: &str) -> Result<Channel, Error> {
+    let channel_read = channels.read().await;
+    let channel = channel_read.query_channel_by_key(channel_key);
 
     match channel {
         Some(chan) => Ok(chan.clone()),
@@ -394,9 +474,7 @@ pub mod chain_manager_tests {
         let channels = Arc::new(RwLock::new(channel_pool));
         cm.events_handler(channels);
 
-        loop {
-            
-        }
+        loop {}
     }
 
     #[tokio::test]
@@ -455,11 +533,7 @@ pub mod chain_manager_tests {
         let channels = Arc::new(RwLock::new(channel_pool));
         cm.events_handler(channels);
 
-
-
-        loop {
-            
-        }
+        loop {}
     }
 
     // #[tokio::test]

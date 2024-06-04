@@ -601,6 +601,9 @@ impl CosmosChain {
             )
             .await?;
 
+        println!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+        println!("MerkleProof: {:#?}", proof);
+
         let packet_proof = proof.ok_or_else(|| Error::empty_response_proof())?;
 
         let proofs = Proofs::new(

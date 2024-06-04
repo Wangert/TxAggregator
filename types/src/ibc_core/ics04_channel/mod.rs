@@ -5,3 +5,5 @@ pub mod error;
 pub mod channel;
 pub mod version;
 pub mod message;
+
+pub mod aggregate_packet;

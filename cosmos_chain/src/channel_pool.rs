@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crossbeam_channel::{select, Receiver, Sender};
+use itertools::Itertools;
 use serde::Serialize;
 use types::ibc_core::{
     ics04_channel::packet::Packet,
@@ -24,6 +25,10 @@ impl ChannelPool {
         }
     }
 
+    pub fn all_channel_keys(&self) -> Vec<String> {
+        self.channels.keys().cloned().collect_vec()
+    }
+
     pub fn add_channel(&mut self, channel: Channel) -> Result<(), Error> {
         let channel_key = ChannelKey {
             source_channel_id: channel.source_chain_channel_id().cloned(),
@@ -44,20 +49,26 @@ impl ChannelPool {
     }
 
     pub fn query_channel_by_packet(&self, packet: &Packet) -> Result<Option<Channel>, Error> {
-        let channel_key = ChannelKey {
-            source_channel_id: Some(packet.source_channel.clone()),
-            source_port_id: Some(packet.source_port.clone()),
-            destination_channel_id: Some(packet.destination_channel.clone()),
-            destination_port_id: Some(packet.destination_port.clone()),
-        };
-
-        let k = encode_to_base64_string(&channel_key)
-            .map_err(|e| Error::utils_encode_error("channel key".to_string(), e))?;
+        let k = channel_key_by_packet(packet)?;
 
         let v = self.channels.get(&k);
 
         Ok(v.cloned())
     }
+}
+
+pub fn channel_key_by_packet(packet: &Packet) -> Result<String, Error> {
+    let channel_key = ChannelKey {
+        source_channel_id: Some(packet.source_channel.clone()),
+        source_port_id: Some(packet.source_port.clone()),
+        destination_channel_id: Some(packet.destination_channel.clone()),
+        destination_port_id: Some(packet.destination_port.clone()),
+    };
+
+    let k = encode_to_base64_string(&channel_key)
+        .map_err(|e| Error::utils_encode_error("channel key".to_string(), e))?;
+
+    Ok(k)
 }
 
 #[derive(Debug, Clone, Serialize)]
