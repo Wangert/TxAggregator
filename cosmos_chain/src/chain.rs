@@ -47,6 +47,7 @@ use types::{
             version::Version,
         },
         ics04_channel::{
+            aggregate_packet::AggregatePacket,
             channel::ChannelEnd,
             events::WriteAcknowledgement,
             packet::{MsgAcknowledgement, Packet, RecvPacket, Sequence},
@@ -470,12 +471,11 @@ impl CosmosChain {
                 if let Ok(block) = self.query_block(latest_block_results.height).await {
                     let revision_number = ChainId::chain_version(block.header.chain_id.as_str());
                     let revision_height = u64::from(latest_block_results.height);
-    
+
                     h = Height::new(revision_number, revision_height).map_err(Error::type_error)?;
                     break;
                 }
             }
-            
         }
 
         Ok(h)
@@ -582,6 +582,35 @@ impl CosmosChain {
                 .find(|h| h < &target_height)
                 .ok_or_else(Error::missing_smaller_trusted_height)
         }
+    }
+
+    pub async fn build_aggregate_packet(
+        &self,
+        packets: Vec<Packet>,
+        target_signer: Signer,
+        height: Height,
+    ) -> Result<AggregatePacket, Error> {
+        let mut packet_proofs = vec![];
+        for p in packets {
+            let r = self
+                .query_packet_commitment(
+                    &p.source_port,
+                    &p.source_channel,
+                    &p.sequence,
+                    QueryHeight::Specific(height),
+                    true,
+                )
+                .await;
+
+            let packet_proof = match r {
+                Ok((_, Some(packet_proof))) => Some(packet_proof),
+                _ => None,
+            };
+
+            packet_proofs.push(packet_proof);
+        }
+
+        todo!()
     }
 
     // Built from the generating end of an event
