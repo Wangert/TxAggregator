@@ -21,6 +21,7 @@ use types::proofs::ProofError;
 use types::signer::SignerError;
 use utils::encode::error::EncodeError as UtilsEncodeError;
 use utils::file::error::FileError;
+use utils::crypto::CryptoError;
 // use tendermint_proto::Error as ProtobufError;
 
 define_error! {
@@ -256,6 +257,16 @@ define_error! {
             |_| { "empty channel version" },
         EmptyChannel
             |_| { "empty channel" },
+
+        CryptoError
+            [ TraceError<CryptoError> ]
+            |e| { format!("crypto error: {}", e) },
+        LengthOpNotExist
+            |_| { "length op is not exist" },
+        LeafKeyOrValueIsEmpty
+            |_| { "leaf key or value is empty" },
+        ChildIsEmpty
+            |_| { "child is empty" },
     }
 }
 

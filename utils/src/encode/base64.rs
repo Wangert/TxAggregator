@@ -20,3 +20,7 @@ where
 
     Ok(base64_str)
 }
+
+pub fn u8_to_base64_string(value: Vec<u8>) -> String {
+    base64::engine::general_purpose::STANDARD.encode(value)
+}
