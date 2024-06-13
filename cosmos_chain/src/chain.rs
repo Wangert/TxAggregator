@@ -28,7 +28,7 @@ use ics23::{commitment_proof::Proof, InnerOp, LeafOp};
 use itertools::Itertools;
 use log::{error, info, trace};
 use prost::Message;
-use std::{collections::HashMap, sync::Arc, thread, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, thread, time::Duration};
 use tendermint::{
     abci::response::Info,
     block::{Header as TendermintHeader, Height as TendermintHeight},
@@ -92,7 +92,9 @@ use crate::{
         build_light_client_io, fetch_light_block, verify_block_header_and_fetch_light_block,
         Verified,
     },
-    merkle_proof::{calculate_leaf_hash, calculate_next_step_hash, inner_op_to_base64_string, MerkleProofInfo},
+    merkle_proof::{
+        calculate_leaf_hash, calculate_next_step_hash, inner_op_to_base64_string, MerkleProofInfo,
+    },
     query::{
         grpc::{self, account::query_detail_account, consensus::query_all_consensus_state_heights},
         trpc,
@@ -589,15 +591,12 @@ impl CosmosChain {
         }
     }
 
-    pub async fn build_aggregate_packet(
+    pub async fn query_packets_merkle_proof_infos(
         &self,
         packets: Vec<Packet>,
-        target_signer: Signer,
-        height: Height,
-    ) -> Result<AggregatePacket, Error> {
+        height: &Height,
+    ) -> Result<HashMap<Packet, MerkleProofInfo>, Error> {
         let mut packets_proofs_map = HashMap::new();
-        let mut no_proof_packets = vec![];
-        let mut max_path_len = 0;
 
         // build all packets' MerkleProofInfo
         for p in &packets {
@@ -606,7 +605,7 @@ impl CosmosChain {
                     &p.source_port,
                     &p.source_channel,
                     &p.sequence,
-                    QueryHeight::Specific(height),
+                    QueryHeight::Specific(height.clone()),
                     true,
                 )
                 .await;
@@ -624,9 +623,7 @@ impl CosmosChain {
                         .flatten()
                         .collect_vec();
 
-                    let full_path_len = full_path.len();
-                    if full_path_len == 0 {
-                        no_proof_packets.push(p);
+                    if full_path.len() == 0 {
                         continue;
                     }
 
@@ -644,27 +641,37 @@ impl CosmosChain {
                         if let Some(leaf) = &ep.leaf {
                             merkle_proof_info.leaf_op = leaf.clone()
                         } else {
-                            no_proof_packets.push(p);
                             continue;
                         }
                     }
 
-                    _ = packets_proofs_map.insert(p, merkle_proof_info);
-
-                    if full_path_len > max_path_len {
-                        max_path_len = full_path_len
-                    }
+                    _ = packets_proofs_map.insert(p.clone(), merkle_proof_info);
                 }
-                _ => no_proof_packets.push(p),
+                _ => continue,
             };
         }
+
+        Ok(packets_proofs_map)
+    }
+
+    pub async fn build_aggregate_packet(
+        &self,
+        packets: Vec<Packet>,
+        target_signer: Signer,
+        height: Height,
+    ) -> Result<AggregatePacket, Error> {
+        let packets_proofs_map = self
+            .query_packets_merkle_proof_infos(packets.clone(), &height)
+            .await?;
 
         let mut temp_aggregate_proof: HashMap<u16, HashMap<String, (InnerOp, Vec<u8>)>> =
             HashMap::new();
 
+        let mut valid_packets = vec![];
+        let mut packets_leaf_number = vec![];
         // generate temporary aggregate proof
-        // For AggregateProof, the path closer to the Merkle root has a smaller level number. 
-        // In other words, the height of the Merkle path node determines its number in AggregateProof. 
+        // For AggregateProof, the path closer to the Merkle root has a smaller level number.
+        // In other words, the height of the Merkle path node determines its number in AggregateProof.
         // We need the same Merkle path for different cross-chain transactions to construct AggregateProof.
         for (packet, proof) in packets_proofs_map {
             let path_len = proof.full_path.len();
@@ -679,10 +686,12 @@ impl CosmosChain {
                 // Check that the level number exists
                 // Record information about the level at which the leaf node is located
                 if let Some(proof_meta_map) = temp_aggregate_proof.get_mut(&leaf_number) {
-                    proof_meta_map.insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone()));
+                    proof_meta_map
+                        .insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone()));
                 } else {
                     let mut new_proof_meta_map = HashMap::new();
-                    new_proof_meta_map.insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone()));
+                    new_proof_meta_map
+                        .insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone()));
                     temp_aggregate_proof.insert(leaf_number, new_proof_meta_map);
                 }
 
@@ -695,38 +704,76 @@ impl CosmosChain {
                     let inner_op = proof.full_path[i].clone();
                     let inner_op_str = inner_op_to_base64_string(&inner_op);
 
+                    let next_step_hash_result =
+                        calculate_next_step_hash(&pre_inner_op, step_hash.clone());
                     // Check that the level number exists
                     if let Some(proof_meta_map) = temp_aggregate_proof.get_mut(&number) {
                         if proof_meta_map.contains_key(&inner_op_str) {
                             break;
                         }
 
-                        let next_step_hash_result = calculate_next_step_hash(&pre_inner_op, step_hash.clone());
                         if let Ok(next_step_hash) = next_step_hash_result {
-                            proof_meta_map.insert(inner_op_str, (inner_op.clone(), next_step_hash.clone()));
+                            proof_meta_map
+                                .insert(inner_op_str, (inner_op.clone(), next_step_hash.clone()));
                             step_hash = next_step_hash
                         }
-                        
                     } else {
                         let mut new_proof_meta_map = HashMap::new();
-                        new_proof_meta_map.insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone()));
-                        temp_aggregate_proof.insert(leaf_number, new_proof_meta_map);
+                        new_proof_meta_map
+                            .insert(inner_op_str, (inner_op.clone(), step_hash.clone()));
+                        temp_aggregate_proof.insert(number, new_proof_meta_map);
                     }
 
                     pre_inner_op = inner_op;
                 }
+
+                valid_packets.push(packet.clone());
+                packets_leaf_number.push(leaf_number);
             }
         }
 
-        let proof = temp_aggregate_proof.iter().map(|(number, proof_meta_map)| {
-            let proof_meta_list = proof_meta_map.iter().map(|(_, (inner_op, hash_value))| {
-                ProofMeta{ hash_value: hash_value.clone(), path_inner_op:  inner_op.clone()}
-            }).collect_vec();
+        let number_len = temp_aggregate_proof.len();
+        let mut proof = vec![SubProof::default(); number_len];
+        for (number, proof_meta_map) in temp_aggregate_proof {
+            let proof_meta_list = proof_meta_map
+                .iter()
+                .map(|(_, (inner_op, hash_value))| ProofMeta {
+                    hash_value: hash_value.clone(),
+                    path_inner_op: inner_op.clone(),
+                })
+                .collect_vec();
 
-            SubProof{ number: number.clone(), proof_meta_list }
-        }).collect_vec();
+            let sp = SubProof {
+                number: number.clone(),
+                proof_meta_list,
+            };
 
-        let arrgegate_packet = AggregatePacket{ packets, proof, signer: target_signer };
+            proof[number_len - (number as usize - 1)] = sp;
+        }
+        // let proof = temp_aggregate_proof
+        //     .iter()
+        //     .map(|(number, proof_meta_map)| {
+        //         let proof_meta_list = proof_meta_map
+        //             .iter()
+        //             .map(|(_, (inner_op, hash_value))| ProofMeta {
+        //                 hash_value: hash_value.clone(),
+        //                 path_inner_op: inner_op.clone(),
+        //             })
+        //             .collect_vec();
+
+        //         SubProof {
+        //             number: number.clone(),
+        //             proof_meta_list,
+        //         }
+        //     })
+        //     .collect_vec();
+
+        let arrgegate_packet = AggregatePacket {
+            packets,
+            packets_leaf_number,
+            proof,
+            signer: target_signer,
+        };
 
         Ok(arrgegate_packet)
     }
@@ -1091,16 +1138,149 @@ impl CosmosChain {
     }
 }
 
+fn generate_aggregate_packet(
+    packets: Vec<Packet>,
+    packets_proofs_map: HashMap<Packet, MerkleProofInfo>,
+) -> Result<AggregatePacket, Error> {
+    let mut temp_aggregate_proof: HashMap<u16, HashMap<String, (InnerOp, Vec<u8>)>> =
+        HashMap::new();
+
+    let mut valid_packets = vec![];
+    let mut packets_leaf_number = vec![];
+    // generate temporary aggregate proof
+    // For AggregateProof, the path closer to the Merkle root has a smaller level number.
+    // In other words, the height of the Merkle path node determines its number in AggregateProof.
+    // We need the same Merkle path for different cross-chain transactions to construct AggregateProof.
+    for (packet, proof) in packets_proofs_map {
+        let path_len = proof.full_path.len();
+        let leaf_hash_result = calculate_leaf_hash(proof.leaf_op, proof.leaf_key, proof.leaf_value);
+
+        if let Ok(leaf_hash) = leaf_hash_result {
+            let leaf_number = (path_len - 1) as u16;
+            let first_inner_op = proof.full_path[0].clone();
+            let inner_op_str = inner_op_to_base64_string(&first_inner_op);
+
+            println!("inner_op_str: {}", inner_op_str);
+
+            // Check that the level number exists
+            // Record information about the level at which the leaf node is located
+            if let Some(proof_meta_map) = temp_aggregate_proof.get_mut(&leaf_number) {
+                proof_meta_map.insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone()));
+            } else {
+                let mut new_proof_meta_map = HashMap::new();
+                new_proof_meta_map
+                    .insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone()));
+                temp_aggregate_proof.insert(leaf_number, new_proof_meta_map);
+            }
+
+            let mut step_hash = leaf_hash.clone();
+            let mut pre_inner_op = first_inner_op.clone();
+            // The relevant information of all Merkle path nodes is calculated and recorded
+            for i in 1..path_len {
+                let number = (path_len - i - 1) as u16;
+
+                let inner_op = proof.full_path[i].clone();
+                let inner_op_str = inner_op_to_base64_string(&inner_op);
+
+                let next_step_hash_result =
+                    calculate_next_step_hash(&pre_inner_op, step_hash.clone());
+                println!("inner_op_str: {:?}", inner_op_str);
+                // Check that the level number exists
+                if let Some(proof_meta_map) = temp_aggregate_proof.get_mut(&number) {
+                    if proof_meta_map.contains_key(&inner_op_str) {
+                        break;
+                    }
+
+                    println!("{}:new inner op", number);
+                    if let Ok(next_step_hash) = next_step_hash_result {
+                        proof_meta_map
+                            .insert(inner_op_str, (inner_op.clone(), next_step_hash.clone()));
+                        step_hash = next_step_hash
+                    }
+                } else {
+                    println!("new number");
+                    let mut new_proof_meta_map = HashMap::new();
+                    new_proof_meta_map.insert(inner_op_str, (inner_op.clone(), step_hash.clone()));
+                    temp_aggregate_proof.insert(number, new_proof_meta_map);
+                }
+
+                pre_inner_op = inner_op;
+            }
+
+            valid_packets.push(packet.clone());
+            packets_leaf_number.push(leaf_number);
+        }
+    }
+
+    let number_len = temp_aggregate_proof.len();
+    let mut proof = vec![SubProof::default(); number_len];
+    for (number, proof_meta_map) in temp_aggregate_proof {
+        let proof_meta_list = proof_meta_map
+            .iter()
+            .map(|(_, (inner_op, hash_value))| ProofMeta {
+                hash_value: hash_value.clone(),
+                path_inner_op: inner_op.clone(),
+            })
+            .collect_vec();
+
+        let sp = SubProof {
+            number: number.clone(),
+            proof_meta_list,
+        };
+
+        proof[number_len - (number as usize) - 1] = sp;
+    }
+    // let proof = temp_aggregate_proof
+    //     .iter()
+    //     .map(|(number, proof_meta_map)| {
+    //         let proof_meta_list = proof_meta_map
+    //             .iter()
+    //             .map(|(_, (inner_op, hash_value))| ProofMeta {
+    //                 hash_value: hash_value.clone(),
+    //                 path_inner_op: inner_op.clone(),
+    //             })
+    //             .collect_vec();
+
+    //         SubProof {
+    //             number: number.clone(),
+    //             proof_meta_list,
+    //         }
+    //     })
+    //     .collect_vec();
+
+    let arrgegate_packet = AggregatePacket {
+        packets,
+        packets_leaf_number,
+        proof,
+        signer: Signer::from_str("wjt").unwrap(),
+    };
+
+    Ok(arrgegate_packet)
+}
+
 #[cfg(test)]
 pub mod chain_tests {
-    use std::str::FromStr;
+    use std::{collections::HashMap, str::FromStr};
 
+    use ics23::{InnerOp, LeafOp};
     use log::info;
-    use types::ibc_core::ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId};
+    use types::{
+        ibc_core::{
+            ics04_channel::{
+                packet::{Packet, Sequence},
+                timeout::TimeoutHeight,
+            },
+            ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId},
+        },
+        timestamp::Timestamp,
+    };
 
-    use crate::common::QueryHeight;
+    use crate::{
+        common::QueryHeight,
+        merkle_proof::{MerkleProofInfo, HASHOP_NO_HASH, HASHOP_SHA256, LENGTHOP_VAR_PROTO},
+    };
 
-    use super::CosmosChain;
+    use super::{generate_aggregate_packet, CosmosChain};
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -1254,6 +1434,176 @@ pub mod chain_tests {
         match channel_result {
             Ok((channel, _)) => println!("channel: {:?}", channel),
             Err(e) => panic!("{}", e),
+        }
+    }
+
+    #[test]
+    pub fn generate_aggregate_packet_works() {
+        let packet_1 = Packet {
+            sequence: Sequence::from_str("1").unwrap(),
+            source_port: PortId::from_str("blog").unwrap(),
+            source_channel: ChannelId::from_str("channel-1").unwrap(),
+            destination_port: PortId::from_str("blog").unwrap(),
+            destination_channel: ChannelId::from_str("channel-2").unwrap(),
+            data: "packet1".as_bytes().to_vec(),
+            timeout_height: TimeoutHeight::default(),
+            timeout_timestamp: Timestamp::default(),
+        };
+
+        let packet_2 = Packet {
+            sequence: Sequence::from_str("2").unwrap(),
+            source_port: PortId::from_str("blog").unwrap(),
+            source_channel: ChannelId::from_str("channel-1").unwrap(),
+            destination_port: PortId::from_str("blog").unwrap(),
+            destination_channel: ChannelId::from_str("channel-2").unwrap(),
+            data: "packet2".as_bytes().to_vec(),
+            timeout_height: TimeoutHeight::default(),
+            timeout_timestamp: Timestamp::default(),
+        };
+
+        let packet_3 = Packet {
+            sequence: Sequence::from_str("3").unwrap(),
+            source_port: PortId::from_str("blog").unwrap(),
+            source_channel: ChannelId::from_str("channel-1").unwrap(),
+            destination_port: PortId::from_str("blog").unwrap(),
+            destination_channel: ChannelId::from_str("channel-2").unwrap(),
+            data: "packet3".as_bytes().to_vec(),
+            timeout_height: TimeoutHeight::default(),
+            timeout_timestamp: Timestamp::default(),
+        };
+
+        let packets = vec![packet_1, packet_2, packet_3];
+
+        let full_path_1 = vec![
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "1".as_bytes().to_vec(),
+                suffix: "1".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "2".as_bytes().to_vec(),
+                suffix: "2".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "3".as_bytes().to_vec(),
+                suffix: "3".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "4".as_bytes().to_vec(),
+                suffix: "4".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "5".as_bytes().to_vec(),
+                suffix: "5".as_bytes().to_vec(),
+            },
+        ];
+        let mpi_1 = MerkleProofInfo {
+            leaf_key: "mpi_1_key".as_bytes().to_vec(),
+            leaf_value: "mpi_1_value".as_bytes().to_vec(),
+            leaf_op: LeafOp {
+                hash: HASHOP_SHA256,
+                prehash_key: HASHOP_NO_HASH,
+                prehash_value: HASHOP_SHA256,
+                length: LENGTHOP_VAR_PROTO,
+                prefix: "wjt".as_bytes().to_vec(),
+            },
+            full_path: full_path_1,
+        };
+
+        let full_path_2 = vec![
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "11".as_bytes().to_vec(),
+                suffix: "11".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "22".as_bytes().to_vec(),
+                suffix: "22".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "3".as_bytes().to_vec(),
+                suffix: "3".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "4".as_bytes().to_vec(),
+                suffix: "4".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "5".as_bytes().to_vec(),
+                suffix: "5".as_bytes().to_vec(),
+            },
+        ];
+        let mpi_2 = MerkleProofInfo {
+            leaf_key: "mpi_2_key".as_bytes().to_vec(),
+            leaf_value: "mpi_2_value".as_bytes().to_vec(),
+            leaf_op: LeafOp {
+                hash: HASHOP_SHA256,
+                prehash_key: HASHOP_NO_HASH,
+                prehash_value: HASHOP_SHA256,
+                length: LENGTHOP_VAR_PROTO,
+                prefix: "wjt".as_bytes().to_vec(),
+            },
+            full_path: full_path_2,
+        };
+
+        let full_path_3 = vec![
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "111".as_bytes().to_vec(),
+                suffix: "111".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "222".as_bytes().to_vec(),
+                suffix: "222".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "333".as_bytes().to_vec(),
+                suffix: "333".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "4".as_bytes().to_vec(),
+                suffix: "4".as_bytes().to_vec(),
+            },
+            InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "5".as_bytes().to_vec(),
+                suffix: "5".as_bytes().to_vec(),
+            },
+        ];
+        let mpi_3 = MerkleProofInfo {
+            leaf_key: "mpi_3_key".as_bytes().to_vec(),
+            leaf_value: "mpi_3_value".as_bytes().to_vec(),
+            leaf_op: LeafOp {
+                hash: HASHOP_SHA256,
+                prehash_key: HASHOP_NO_HASH,
+                prehash_value: HASHOP_SHA256,
+                length: LENGTHOP_VAR_PROTO,
+                prefix: "wjt".as_bytes().to_vec(),
+            },
+            full_path: full_path_3,
+        };
+
+        let mut packets_proofs_map = HashMap::new();
+        packets_proofs_map.insert(packets[0].clone(), mpi_1);
+        packets_proofs_map.insert(packets[1].clone(), mpi_2);
+        packets_proofs_map.insert(packets[2].clone(), mpi_3);
+
+        let agg_pac = generate_aggregate_packet(packets, packets_proofs_map);
+
+        match agg_pac {
+            Ok(ap) => println!("{:#?}", ap),
+            Err(e) => eprintln!("{}", e),
         }
     }
 }

@@ -5,11 +5,11 @@ use utils::{crypto, encode::base64::{encode_to_base64_string, u8_to_base64_strin
 
 use crate::error::Error;
 
-const LENGTHOP_NO_PREFIX: i32 = 0;
-const LENGTHOP_VAR_PROTO: i32 = 1;
+pub const LENGTHOP_NO_PREFIX: i32 = 0;
+pub const LENGTHOP_VAR_PROTO: i32 = 1;
 
-const HASHOP_NO_HASH: i32 = 0;
-const HASHOP_SHA256: i32 = 1;
+pub const HASHOP_NO_HASH: i32 = 0;
+pub const HASHOP_SHA256: i32 = 1;
 
 pub fn calculate_next_step_hash(inner_op: &InnerOp, mut child: Vec<u8>) -> Result<Vec<u8>, Error> {
     if child.len() == 0 {
@@ -91,4 +91,33 @@ pub struct MerkleProofInfo {
     pub leaf_value: Vec<u8>,
     pub leaf_op: LeafOp,
     pub full_path: Vec<InnerOp>,
+}
+
+#[cfg(test)]
+pub mod merkle_proof_tests {
+    use crate::merkle_proof::{do_hash_op, do_length_op, HASHOP_SHA256, LENGTHOP_VAR_PROTO};
+
+    #[test]
+    pub fn do_hash_op_works() {
+        let data = "wjt".as_bytes().to_vec();
+        println!("data:{:?}", data);
+
+        let hash_result = do_hash_op(HASHOP_SHA256, data);
+        match hash_result {
+            Ok(h) => println!("Result:{:?}", h),
+            Err(e) => eprintln!("{}", e),
+        }
+    }
+
+    #[test]
+    pub fn do_length_op_works() {
+        let data = "wjtwcx".as_bytes().to_vec();
+        println!("data:{:?}", data);
+
+        let hash_result = do_length_op(LENGTHOP_VAR_PROTO, data);
+        match hash_result {
+            Ok(h) => println!("Result:{:?}", h),
+            Err(e) => eprintln!("{}", e),
+        }
+    }
 }

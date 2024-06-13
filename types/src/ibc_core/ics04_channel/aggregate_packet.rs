@@ -7,11 +7,12 @@ use super::packet::Packet;
 #[derive(Clone, Debug)]
 pub struct AggregatePacket {
     pub packets: Vec<Packet>,
+    pub packets_leaf_number: Vec<u16>,
     pub proof: Vec<SubProof>,
     pub signer: Signer,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SubProof {
     pub number: u16,
     pub proof_meta_list: Vec<ProofMeta>,
@@ -30,9 +31,10 @@ pub struct ProofMeta {
 // }
 
 impl AggregatePacket {
-    pub fn new(packets: Vec<Packet>, proof: Vec<SubProof>, signer: Signer) -> Self {
+    pub fn new(packets: Vec<Packet>, packets_leaf_number: Vec<u16>, proof: Vec<SubProof>, signer: Signer) -> Self {
         Self {
             packets,
+            packets_leaf_number,
             proof,
             signer,
         }
