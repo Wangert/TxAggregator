@@ -67,10 +67,13 @@ use types::{
         },
     },
     ibc_events::{IbcEvent, IbcEventWithHeight},
-    light_clients::ics07_tendermint::{
-        client_state::{AllowUpdate, ClientState},
-        consensus_state::ConsensusState,
-        header::Header,
+    light_clients::{
+        aggrelite,
+        ics07_tendermint::{
+            client_state::{AllowUpdate, ClientState},
+            consensus_state::ConsensusState,
+            header::Header,
+        },
     },
     message::Msg,
     proofs::{ConsensusProof, Proofs},
@@ -81,8 +84,7 @@ use utils::encode::protobuf;
 use crate::{
     account::{self, Secp256k1Account},
     client::{
-        build_consensus_state, build_create_client_request, default_trusting_period,
-        ClientSettings, CreateClientOptions,
+        build_aggrelite_consensus_state, build_consensus_state, build_create_client_request, default_trusting_period, ClientSettings, CreateClientOptions
     },
     common::{parse_protobuf_duration, QueryHeight},
     config::{default::max_grpc_decoding_size, load_cosmos_chain_config, CosmosChainConfig},
@@ -193,6 +195,61 @@ impl CosmosChain {
         Ok(ibc_events_with_height)
     }
 
+    pub async fn build_aggrelite_client_state(
+        &self,
+        client_settings: &ClientSettings,
+    ) -> Result<aggrelite::client_state::ClientState, Error> {
+        // query latest height
+        let latest_block = self.query_latest_block().await?;
+        let latest_height = Height::new(
+            chain_version(latest_block.header.chain_id.as_str()),
+            u64::from(latest_block.header.height),
+        )
+        .map_err(|e| Error::block_height("new height failed".to_string(), e))?;
+
+        // chain id
+        let chain_id = ChainId::from(latest_block.header.chain_id);
+
+        // Get unbonding_period in the parameter list of the staking module
+        let unbonding_period = self
+            .query_staking_params()
+            .await?
+            .unbonding_time
+            .ok_or_else(|| {
+                Error::cosmos_params("empty unbonding time in staking params".to_string())
+            })?;
+        let unbonding_period = parse_protobuf_duration(unbonding_period);
+
+        // create default trusting period
+        let trusting_period = default_trusting_period(unbonding_period);
+
+        // Deprecated, but still required by CreateClient
+        let allow_update = AllowUpdate {
+            after_expiry: true,
+            after_misbehaviour: true,
+        };
+
+        // set standards for cross-chain proof
+        let proof_specs = ProofSpecs::default();
+        // set the client upgrade path
+        let upgrade_path = vec!["upgrade".to_string(), "upgradedIBCState".to_string()];
+
+        let client_state = aggrelite::client_state::ClientState::new(
+            chain_id,
+            client_settings.trust_level,
+            trusting_period,
+            unbonding_period,
+            client_settings.max_clock_drift,
+            latest_height,
+            proof_specs,
+            upgrade_path,
+            allow_update,
+        )
+        .map_err(|e| Error::client_state("new client state failed".to_string(), e))?;
+
+        Ok(client_state)
+    }
+
     pub async fn build_client_state(
         &self,
         client_settings: &ClientSettings,
@@ -232,7 +289,6 @@ impl CosmosChain {
         // set the client upgrade path
         let upgrade_path = vec!["upgrade".to_string(), "upgradedIBCState".to_string()];
 
-        // new a client state
         let client_state = ClientState::new(
             chain_id,
             client_settings.trust_level,
@@ -249,12 +305,48 @@ impl CosmosChain {
         Ok(client_state)
     }
 
+    pub async fn build_aggrelite_consensus_state(
+        &self,
+        client_state: &aggrelite::client_state::ClientState,
+    ) -> Result<aggrelite::consensus_state::ConsensusState, Error> {
+        let mut trpc_client = self.tendermint_rpc_client();
+        let consensus_state =
+            build_aggrelite_consensus_state(&mut trpc_client, &self.config, client_state).await?;
+        Ok(aggrelite::consensus_state::ConsensusState::new(
+            consensus_state.commitment_root,
+            consensus_state.timestamp,
+            consensus_state.next_validators_hash,
+        ))
+    }
+
     pub async fn build_consensus_state(
         &self,
         client_state: &ClientState,
     ) -> Result<ConsensusState, Error> {
         let mut trpc_client = self.tendermint_rpc_client();
         build_consensus_state(&mut trpc_client, &self.config, client_state).await
+    }
+
+    pub async fn build_aggrelite_create_client_msg(
+        &self,
+        client_state: aggrelite::client_state::ClientState,
+        consensus_state: aggrelite::consensus_state::ConsensusState,
+    ) -> Result<Vec<Any>, Error> {
+        let msg_create_client = MsgCreateClient::new(
+            client_state.into(),
+            consensus_state.into(),
+            self.account().get_signer()?,
+        );
+
+        let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
+        let protobuf_value = protobuf::encode_to_bytes(&ibc_msg_create_client)
+            .map_err(|e| Error::utils_protobuf_encode("create client msg".to_string(), e))?;
+        let msg = Any {
+            type_url: CREATE_CLIENT_TYPE_URL.to_string(),
+            value: protobuf_value,
+        };
+
+        Ok(vec![msg])
     }
 
     pub async fn build_create_client_msg(
@@ -1284,6 +1376,39 @@ pub mod chain_tests {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[test]
+    pub fn create_aggrelite_client_works() {
+        init();
+        let a_file_path =
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+        let b_file_path =
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+
+        let cosmos_chain_a = CosmosChain::new(a_file_path);
+        let cosmos_chain_b = CosmosChain::new(b_file_path);
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        // let rt_a = cosmos_chain_a.rt.clone();
+        // let rt_b = cosmos_chain_b.rt.clone();
+        let client_settings = cosmos_chain_a.client_settings(&cosmos_chain_b.config);
+        let client_state = rt
+            .block_on(cosmos_chain_b.build_aggrelite_client_state(&client_settings))
+            .expect("build client state error!");
+        let consensus_state = rt
+            .block_on(cosmos_chain_b.build_aggrelite_consensus_state(&client_state))
+            .expect("build consensus state error!");
+        let msgs = rt
+            .block_on(cosmos_chain_a.build_aggrelite_create_client_msg(client_state, consensus_state))
+            .expect("build create client msg error!");
+
+        let result = rt.block_on(cosmos_chain_a.send_messages_and_wait_commit(msgs));
+
+        match result {
+            Ok(events) => println!("Event: {:?}", events),
+            Err(e) => panic!("{}", e),
+        }
     }
 
     #[test]

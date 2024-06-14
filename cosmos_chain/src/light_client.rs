@@ -19,7 +19,7 @@ use tendermint_rpc::HttpClient;
 use tracing::trace;
 use types::{
     ibc_core::ics02_client::height::Height,
-    light_clients::ics07_tendermint::{client_state::ClientState, header::Header},
+    light_clients::{aggrelite, ics07_tendermint::{client_state::ClientState, header::Header}},
 };
 
 use crate::{config::CosmosChainConfig, error::Error};
@@ -36,6 +36,62 @@ pub struct Verified<H> {
 pub struct LightClient {
     is_trusted_node: bool,
 }
+
+pub fn verify_block_header_and_fetch_aggrelite_light_block(
+    trpc: &mut HttpClient,
+    chain_config: &CosmosChainConfig,
+    client_state: &aggrelite::client_state::ClientState,
+    target_height: Height,
+    node_id: &TendermintNodeId,
+    sync_latest_block_time: Time,
+) -> Result<Verified<LightBlock>, Error> {
+    if !chain_config.trusted_node {
+        info!("trusted node is false");
+        let trpc_io = build_light_client_io(trpc, chain_config, node_id);
+        let light_block = fetch_light_block(&trpc_io, target_height)?;
+
+        info!(
+            "[verify_block_header_and_fetch_light_block] Light Block: {:?}",
+            light_block
+        );
+        return Ok(Verified {
+            target: light_block,
+            supporting: vec![],
+        });
+    }
+
+    let temporary_light_client = create_temporary_aggrelite_light_client(
+        trpc,
+        chain_config,
+        client_state,
+        node_id,
+        sync_latest_block_time,
+    );
+    let mut temporary_light_client_state =
+        create_temporary_light_client_state(trpc, target_height, chain_config, node_id)?;
+
+    // verify height
+    let light_block = temporary_light_client
+        .verify_to_target(target_height.into(), &mut temporary_light_client_state)
+        .map_err(|e| Error::light_client_verify_block(e))?;
+
+    // Collect the verification trace for the target block
+    let target_trace = temporary_light_client_state.get_trace(light_block.height());
+
+    // Compute the supporting set, sorted by ascending height, omitting the target header
+    let supporting_blocks = target_trace
+        .into_iter()
+        .unique_by(LightBlock::height)
+        .sorted_by_key(LightBlock::height)
+        .filter(|lb| lb.height() != light_block.height())
+        .collect_vec();
+
+    Ok(Verified {
+        target: light_block,
+        supporting: supporting_blocks,
+    })
+}
+
 
 pub fn verify_block_header_and_fetch_light_block(
     trpc: &mut HttpClient,
@@ -96,6 +152,28 @@ pub fn create_temporary_light_client(
     trpc: &mut HttpClient,
     chain_config: &CosmosChainConfig,
     client_state: &ClientState,
+    node_id: &TendermintNodeId,
+    sync_latest_block_time: Time,
+) -> TendermintLightClient {
+    let clock = FixedClock::new(sync_latest_block_time);
+    let verifier = ProdVerifier::default();
+    let scheduler = scheduler::basic_bisecting_schedule;
+
+    let trpc_io = build_light_client_io(trpc, chain_config, node_id);
+    TendermintLightClient::new(
+        node_id.clone(),
+        client_state.as_light_client_options(),
+        clock,
+        scheduler,
+        verifier,
+        trpc_io,
+    )
+}
+
+pub fn create_temporary_aggrelite_light_client(
+    trpc: &mut HttpClient,
+    chain_config: &CosmosChainConfig,
+    client_state: &aggrelite::client_state::ClientState,
     node_id: &TendermintNodeId,
     sync_latest_block_time: Time,
 ) -> TendermintLightClient {

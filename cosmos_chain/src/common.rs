@@ -21,6 +21,11 @@ use crate::{
     query::{grpc, trpc},
 };
 
+pub enum LightClientType {
+    Tendermint,
+    AggreLite,
+}
+
 pub fn parse_protobuf_duration(duration: ProtobufDuration) -> Duration {
     Duration::new(duration.seconds as u64, duration.nanos as u32)
 }
