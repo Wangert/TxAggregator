@@ -17,11 +17,11 @@ use types::{
         ics23_commitment::specs::ProofSpecs,
         ics24_host::identifier::{chain_version, ChainId, ClientId},
     },
-    light_clients::ics07_tendermint::{
+    light_clients::{aggrelite, ics07_tendermint::{
         client_state::{AllowUpdate, ClientState},
         consensus_state::ConsensusState,
         trust_level::TrustLevel,
-    },
+    }},
     signer::Signer,
 };
 
@@ -31,7 +31,7 @@ use crate::{
     common::{parse_protobuf_duration, query_latest_height, query_trusted_height, QueryHeight},
     config::{CosmosChainConfig, TrustThreshold},
     error::Error,
-    light_client::verify_block_header_and_fetch_light_block,
+    light_client::{verify_block_header_and_fetch_aggrelite_light_block, verify_block_header_and_fetch_light_block},
     query::{grpc, trpc},
     validate::validate_client_state,
 };
@@ -204,6 +204,26 @@ pub async fn build_consensus_state(
 
     info!("status.node_info.id: {:?}", status.node_info.id);
     let verified_block = verify_block_header_and_fetch_light_block(
+        trpc,
+        chain_config,
+        client_state,
+        client_state.latest_height,
+        &status.node_info.id,
+        status.sync_info.latest_block_time,
+    )?;
+
+    Ok(ConsensusState::from(verified_block.target.signed_header.header))
+}
+
+pub async fn build_aggrelite_consensus_state(
+    trpc: &mut HttpClient,
+    chain_config: &CosmosChainConfig,
+    client_state: &aggrelite::client_state::ClientState,
+) -> Result<ConsensusState, Error> {
+    let status = trpc::consensus::tendermint_status(trpc).await?;
+
+    info!("status.node_info.id: {:?}", status.node_info.id);
+    let verified_block = verify_block_header_and_fetch_aggrelite_light_block(
         trpc,
         chain_config,
         client_state,

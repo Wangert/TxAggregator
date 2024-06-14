@@ -124,7 +124,7 @@ impl EventPool {
                 .get_mut(&(event_type, *h, channel_key))
             {
                 if events.len() < num {
-                    next_events = events.clone();
+                    next_events = events.drain(..).collect();
                 } else {
                     next_events = events.drain(..num).collect();
                 }
