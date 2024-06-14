@@ -20,3 +20,4 @@ pub mod channel;
 pub mod channel_pool;
 pub mod chain_manager;
 pub mod registered_chains;
+pub mod merkle_proof;
