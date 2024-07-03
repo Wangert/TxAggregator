@@ -62,14 +62,21 @@ use types::{
             specs::ProofSpecs,
         },
         ics24_host::{
-            identifier::{chain_version, ChainId, ChannelId, ClientId, ConnectionId, PortId},
+            identifier::{
+                chain_version, ChainId, ChannelId, ClientId, ConnectionId, PortId,
+                AGGRELITE_CLIENT_PREFIX, TENDERMINT_CLIENT_PREFIX,
+            },
             path::{ClientConsensusStatePath, IBC_QUERY_PATH},
         },
     },
     ibc_events::{IbcEvent, IbcEventWithHeight},
     light_clients::{
         aggrelite,
+        header_type::{
+            AdjustHeadersType, AggreliteAdjustHeaders, HeaderType, TendermintAdjustHeaders,
+        },
         ics07_tendermint::{
+            self,
             client_state::{AllowUpdate, ClientState},
             consensus_state::ConsensusState,
             header::Header,
@@ -84,7 +91,8 @@ use utils::encode::protobuf;
 use crate::{
     account::{self, Secp256k1Account},
     client::{
-        build_aggrelite_consensus_state, build_consensus_state, build_create_client_request, default_trusting_period, ClientSettings, CreateClientOptions
+        build_aggrelite_consensus_state, build_consensus_state, build_create_client_request,
+        default_trusting_period, ClientSettings, CreateClientOptions,
     },
     common::{parse_protobuf_duration, QueryHeight},
     config::{default::max_grpc_decoding_size, load_cosmos_chain_config, CosmosChainConfig},
@@ -756,7 +764,7 @@ impl CosmosChain {
             .query_packets_merkle_proof_infos(packets.clone(), &height)
             .await?;
 
-        let mut temp_aggregate_proof: HashMap<u16, HashMap<String, (InnerOp, Vec<u8>)>> =
+        let mut temp_aggregate_proof: HashMap<u64, HashMap<String, (InnerOp, Vec<u8>)>> =
             HashMap::new();
 
         let mut valid_packets = vec![];
@@ -771,7 +779,7 @@ impl CosmosChain {
                 calculate_leaf_hash(proof.leaf_op, proof.leaf_key, proof.leaf_value);
 
             if let Ok(leaf_hash) = leaf_hash_result {
-                let leaf_number = (path_len - 1) as u16;
+                let leaf_number = (path_len - 1) as u64;
                 let first_inner_op = proof.full_path[0].clone();
                 let inner_op_str = inner_op_to_base64_string(&first_inner_op);
 
@@ -791,7 +799,7 @@ impl CosmosChain {
                 let mut pre_inner_op = first_inner_op.clone();
                 // The relevant information of all Merkle path nodes is calculated and recorded
                 for i in 1..path_len {
-                    let number = (path_len - i - 1) as u16;
+                    let number = (path_len - i - 1) as u64;
 
                     let inner_op = proof.full_path[i].clone();
                     let inner_op_str = inner_op_to_base64_string(&inner_op);
@@ -865,6 +873,7 @@ impl CosmosChain {
             packets_leaf_number,
             proof,
             signer: target_signer,
+            height,
         };
 
         Ok(arrgegate_packet)
@@ -1082,7 +1091,8 @@ impl CosmosChain {
         trusted_height: Height,
         target: LightBlock,
         supporting: Vec<LightBlock>,
-    ) -> Result<(Header, Vec<Header>), Error> {
+        client_type_prefix: &str,
+    ) -> Result<AdjustHeadersType, Error> {
         let mut trpc_client = self.tendermint_rpc_client();
         let chain_config = self.config.clone();
         let chain_status = self.query_tendermint_status().await?;
@@ -1094,51 +1104,139 @@ impl CosmosChain {
         let trusted_validator_set =
             fetch_light_block(&prodio, trusted_height.increment())?.validators;
 
-        let mut supporting_headers = Vec::with_capacity(supporting.len());
+        // let mut supporting_tm_headers = Vec::with_capacity(supporting.len());
+        // let mut supporting_ag_headers = Vec::with_capacity(supporting.len());
 
         let mut current_trusted_height = trusted_height;
         let mut current_trusted_validators = trusted_validator_set.clone();
 
-        for support in supporting {
-            let header = Header {
-                signed_header: support.signed_header.clone(),
-                validator_set: support.validators,
-                trusted_height: current_trusted_height,
-                trusted_validator_set: current_trusted_validators,
+        let adjust_headers = if client_type_prefix == TENDERMINT_CLIENT_PREFIX {
+            let mut supporting_headers = Vec::with_capacity(supporting.len());
+
+            for support in supporting {
+                let header = ics07_tendermint::header::Header {
+                    signed_header: support.signed_header.clone(),
+                    validator_set: support.validators,
+                    trusted_height: current_trusted_height,
+                    trusted_validator_set: current_trusted_validators,
+                };
+
+                // This header is now considered to be the currently trusted header
+                current_trusted_height = header.height();
+
+                // Therefore we can now trust the next validator set, see NOTE above.
+                current_trusted_validators =
+                    fetch_light_block(&prodio, header.height().increment())?.validators;
+
+                supporting_headers.push(header);
+            }
+
+            // a) Set the trusted height of the target header to the height of the previous
+            // supporting header if any, or to the initial trusting height otherwise.
+            //
+            // b) Set the trusted validators of the target header to the validators of the successor to
+            // the last supporting header if any, or to the initial trusted validators otherwise.
+            let (latest_trusted_height, latest_trusted_validator_set) = match supporting_headers
+                .last()
+            {
+                Some(prev_header) => {
+                    let prev_succ = fetch_light_block(&prodio, prev_header.height().increment())?;
+                    (prev_header.height(), prev_succ.validators)
+                }
+                None => (trusted_height, trusted_validator_set),
             };
 
-            // This header is now considered to be the currently trusted header
-            current_trusted_height = header.height();
+            let target_header = ics07_tendermint::header::Header {
+                signed_header: target.signed_header,
+                validator_set: target.validators,
+                trusted_height: latest_trusted_height,
+                trusted_validator_set: latest_trusted_validator_set,
+            };
 
-            // Therefore we can now trust the next validator set, see NOTE above.
-            current_trusted_validators =
-                fetch_light_block(&prodio, header.height().increment())?.validators;
+            let adjust_headers = AdjustHeadersType::Tendermint(TendermintAdjustHeaders {
+                target_header,
+                supporting_headers,
+            });
 
-            supporting_headers.push(header);
-        }
+            Ok(adjust_headers)
+        } else {
+            let mut supporting_headers = Vec::with_capacity(supporting.len());
 
-        // a) Set the trusted height of the target header to the height of the previous
-        // supporting header if any, or to the initial trusting height otherwise.
-        //
-        // b) Set the trusted validators of the target header to the validators of the successor to
-        // the last supporting header if any, or to the initial trusted validators otherwise.
-        let (latest_trusted_height, latest_trusted_validator_set) = match supporting_headers.last()
-        {
-            Some(prev_header) => {
-                let prev_succ = fetch_light_block(&prodio, prev_header.height().increment())?;
-                (prev_header.height(), prev_succ.validators)
+            for support in supporting {
+                let header = aggrelite::header::Header {
+                    signed_header: support.signed_header.clone(),
+                    validator_set: support.validators,
+                    trusted_height: current_trusted_height,
+                    trusted_validator_set: current_trusted_validators,
+                };
+
+                // This header is now considered to be the currently trusted header
+                current_trusted_height = header.height();
+
+                // Therefore we can now trust the next validator set, see NOTE above.
+                current_trusted_validators =
+                    fetch_light_block(&prodio, header.height().increment())?.validators;
+
+                supporting_headers.push(header);
             }
-            None => (trusted_height, trusted_validator_set),
+
+            // a) Set the trusted height of the target header to the height of the previous
+            // supporting header if any, or to the initial trusting height otherwise.
+            //
+            // b) Set the trusted validators of the target header to the validators of the successor to
+            // the last supporting header if any, or to the initial trusted validators otherwise.
+            let (latest_trusted_height, latest_trusted_validator_set) = match supporting_headers
+                .last()
+            {
+                Some(prev_header) => {
+                    let prev_succ = fetch_light_block(&prodio, prev_header.height().increment())?;
+                    (prev_header.height(), prev_succ.validators)
+                }
+                None => (trusted_height, trusted_validator_set),
+            };
+
+            let target_header = aggrelite::header::Header {
+                signed_header: target.signed_header,
+                validator_set: target.validators,
+                trusted_height: latest_trusted_height,
+                trusted_validator_set: latest_trusted_validator_set,
+            };
+
+            let adjust_headers = AdjustHeadersType::Aggrelite(AggreliteAdjustHeaders {
+                target_header,
+                supporting_headers,
+            });
+
+            Ok(adjust_headers)
         };
 
-        let target_header = Header {
-            signed_header: target.signed_header,
-            validator_set: target.validators,
-            trusted_height: latest_trusted_height,
-            trusted_validator_set: latest_trusted_validator_set,
-        };
+        adjust_headers
 
-        Ok((target_header, supporting_headers))
+        // if client_type_prefix == TENDERMINT_CLIENT_PREFIX {
+        //     let target_header = ics07_tendermint::header::Header {
+        //         signed_header: target.signed_header,
+        //         validator_set: target.validators,
+        //         trusted_height: latest_trusted_height,
+        //         trusted_validator_set: latest_trusted_validator_set,
+        //     };
+        //     return Ok((HeaderType::TendermintHeader(target_header), supporting_headers));
+        // }
+
+        //     let target_header = aggrelite::header::Header {
+        //         signed_header: target.signed_header,
+        //         validator_set: target.validators,
+        //         trusted_height: latest_trusted_height,
+        //         trusted_validator_set: latest_trusted_validator_set,
+        //     };
+
+        // // let target_header = Header {
+        // //     signed_header: target.signed_header,
+        // //     validator_set: target.validators,
+        // //     trusted_height: latest_trusted_height,
+        // //     trusted_validator_set: latest_trusted_validator_set,
+        // // };
+
+        // Ok((HeaderType::AggreliteHeader(target_header), supporting_headers))
     }
 
     pub async fn validate_client_state(
@@ -1191,21 +1289,63 @@ impl CosmosChain {
             .query_trusted_height(target_height, &client_id, &client_state)
             .await?;
 
-        let (target_header, support_headers) = self
-            .adjust_headers(
+        let (target_header, support_headers) = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
+            self.adjust_headers(
                 trusted_height,
                 verified_blocks.target,
                 verified_blocks.supporting,
+                TENDERMINT_CLIENT_PREFIX,
             )
             .await
-            .map(|(target_header, support_headers)| {
-                let header = AnyHeader::from(target_header);
-                let support: Vec<AnyHeader> = support_headers
-                    .into_iter()
-                    .map(|h| AnyHeader::from(h))
-                    .collect();
-                (header, support)
-            })?;
+            .map(|adjust_headers| match adjust_headers {
+                AdjustHeadersType::Tendermint(headers) => {
+                    let header = AnyHeader::from(headers.target_header);
+                    let support: Vec<AnyHeader> = headers
+                        .supporting_headers
+                        .into_iter()
+                        .map(|h| AnyHeader::from(h))
+                        .collect();
+                    (header, support)
+                }
+                AdjustHeadersType::Aggrelite(headers) => {
+                    let header = AnyHeader::from(headers.target_header);
+                    let support: Vec<AnyHeader> = headers
+                        .supporting_headers
+                        .into_iter()
+                        .map(|h| AnyHeader::from(h))
+                        .collect();
+                    (header, support)
+                }
+            })?
+        } else {
+            self.adjust_headers(
+                trusted_height,
+                verified_blocks.target,
+                verified_blocks.supporting,
+                AGGRELITE_CLIENT_PREFIX,
+            )
+            .await
+            .map(|adjust_headers| match adjust_headers {
+                AdjustHeadersType::Tendermint(headers) => {
+                    let header = AnyHeader::from(headers.target_header);
+                    let support: Vec<AnyHeader> = headers
+                        .supporting_headers
+                        .into_iter()
+                        .map(|h| AnyHeader::from(h))
+                        .collect();
+                    (header, support)
+                }
+                AdjustHeadersType::Aggrelite(headers) => {
+                    let header = AnyHeader::from(headers.target_header);
+                    let support: Vec<AnyHeader> = headers
+                        .supporting_headers
+                        .into_iter()
+                        .map(|h| AnyHeader::from(h))
+                        .collect();
+                    (header, support)
+                }
+            })?
+        };
 
         let signer = self.account().get_signer()?;
 
@@ -1233,8 +1373,9 @@ impl CosmosChain {
 fn generate_aggregate_packet(
     packets: Vec<Packet>,
     packets_proofs_map: HashMap<Packet, MerkleProofInfo>,
+    height: Height
 ) -> Result<AggregatePacket, Error> {
-    let mut temp_aggregate_proof: HashMap<u16, HashMap<String, (InnerOp, Vec<u8>)>> =
+    let mut temp_aggregate_proof: HashMap<u64, HashMap<String, (InnerOp, Vec<u8>)>> =
         HashMap::new();
 
     let mut valid_packets = vec![];
@@ -1248,7 +1389,7 @@ fn generate_aggregate_packet(
         let leaf_hash_result = calculate_leaf_hash(proof.leaf_op, proof.leaf_key, proof.leaf_value);
 
         if let Ok(leaf_hash) = leaf_hash_result {
-            let leaf_number = (path_len - 1) as u16;
+            let leaf_number = (path_len - 1) as u64;
             let first_inner_op = proof.full_path[0].clone();
             let inner_op_str = inner_op_to_base64_string(&first_inner_op);
 
@@ -1269,7 +1410,7 @@ fn generate_aggregate_packet(
             let mut pre_inner_op = first_inner_op.clone();
             // The relevant information of all Merkle path nodes is calculated and recorded
             for i in 1..path_len {
-                let number = (path_len - i - 1) as u16;
+                let number = (path_len - i - 1) as u64;
 
                 let inner_op = proof.full_path[i].clone();
                 let inner_op_str = inner_op_to_base64_string(&inner_op);
@@ -1345,6 +1486,7 @@ fn generate_aggregate_packet(
         packets_leaf_number,
         proof,
         signer: Signer::from_str("wjt").unwrap(),
+        height
     };
 
     Ok(arrgegate_packet)
@@ -1358,11 +1500,10 @@ pub mod chain_tests {
     use log::info;
     use types::{
         ibc_core::{
-            ics04_channel::{
+            ics02_client::height::Height, ics04_channel::{
                 packet::{Packet, Sequence},
                 timeout::TimeoutHeight,
-            },
-            ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId},
+            }, ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId}
         },
         timestamp::Timestamp,
     };
@@ -1400,7 +1541,9 @@ pub mod chain_tests {
             .block_on(cosmos_chain_b.build_aggrelite_consensus_state(&client_state))
             .expect("build consensus state error!");
         let msgs = rt
-            .block_on(cosmos_chain_a.build_aggrelite_create_client_msg(client_state, consensus_state))
+            .block_on(
+                cosmos_chain_a.build_aggrelite_create_client_msg(client_state, consensus_state),
+            )
             .expect("build create client msg error!");
 
         let result = rt.block_on(cosmos_chain_a.send_messages_and_wait_commit(msgs));
@@ -1559,6 +1702,26 @@ pub mod chain_tests {
         match channel_result {
             Ok((channel, _)) => println!("channel: {:?}", channel),
             Err(e) => panic!("{}", e),
+        }
+    }
+
+    #[test]
+    pub fn packet_to_leaf_hash_works() {
+        let packet = Packet {
+            sequence: Sequence::from_str("1").unwrap(),
+            source_port: PortId::from_str("blog").unwrap(),
+            source_channel: ChannelId::from_str("channel-1").unwrap(),
+            destination_port: PortId::from_str("blog").unwrap(),
+            destination_channel: ChannelId::from_str("channel-2").unwrap(),
+            data: "packet1".as_bytes().to_vec(),
+            timeout_height: TimeoutHeight::At(Height::new(2, 3456).unwrap()),
+            timeout_timestamp: Timestamp::from_nanoseconds(123456789).unwrap(),
+        };
+
+        let hash_result = packet.to_hash_value();
+        match hash_result {
+           Ok(hash) => println!("{:?}", hash),
+           Err(e) => println!("{}", e.to_string()) 
         }
     }
 
@@ -1724,7 +1887,7 @@ pub mod chain_tests {
         packets_proofs_map.insert(packets[1].clone(), mpi_2);
         packets_proofs_map.insert(packets[2].clone(), mpi_3);
 
-        let agg_pac = generate_aggregate_packet(packets, packets_proofs_map);
+        let agg_pac = generate_aggregate_packet(packets, packets_proofs_map, Height::new(2, 222).unwrap());
 
         match agg_pac {
             Ok(ap) => println!("{:#?}", ap),

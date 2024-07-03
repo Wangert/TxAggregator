@@ -113,7 +113,7 @@ impl TryFrom<Any> for Header {
         }
 
         match raw.type_url.as_str() {
-            TENDERMINT_HEADER_TYPE_URL => decode_header(raw.value.deref()).map_err(Into::into),
+            AGGRELITE_HEADER_TYPE_URL => decode_header(raw.value.deref()).map_err(Into::into),
             _ => Err(TypesError::unknown_header_type(raw.type_url)),
         }
     }

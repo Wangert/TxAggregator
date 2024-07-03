@@ -1,4 +1,5 @@
 use derive_more::{From, Into};
+use utils::crypto::do_hash;
 use std::str::FromStr;
 
 use ibc_proto::Protobuf;
@@ -224,6 +225,29 @@ pub struct Packet {
     pub timeout_timestamp: Timestamp,
 }
 
+pub const HASHOP_NO_HASH: i32 = 0;
+pub const HASHOP_SHA256: i32 = 1;
+
+impl Packet {
+    pub fn to_hash_value(&self) -> Result<Vec<u8>, ChannelError> {
+        let mut buf = vec![];
+        let mut timeout_ts = self.timeout_timestamp.nanoseconds().to_be_bytes().to_vec();
+        buf.append(&mut timeout_ts);
+        let mut height_number = self.timeout_height.commitment_revision_number().to_be_bytes().to_vec();
+        buf.append(&mut height_number);
+        let mut height_height = self.timeout_height.commitment_revision_height().to_be_bytes().to_vec();
+        buf.append(&mut height_height);
+
+        let mut data_hash = do_hash(HASHOP_SHA256, self.data.clone()).map_err(ChannelError::crypto_error)?;
+        buf.append(&mut data_hash);
+
+        let hash = do_hash(HASHOP_SHA256, buf).map_err(ChannelError::crypto_error)?;
+
+        Ok(hash) 
+
+    }
+}
+
 struct PacketData<'a>(&'a [u8]);
 
 impl<'a> core::fmt::Debug for PacketData<'a> {
@@ -421,3 +445,5 @@ impl core::ops::Add<u64> for Sequence {
         Self(self.0 + rhs)
     }
 }
+
+

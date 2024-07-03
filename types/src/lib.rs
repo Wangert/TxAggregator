@@ -7,3 +7,4 @@ pub mod timestamp;
 pub mod serializers;
 pub mod message;
 pub mod proofs;
+pub mod proto;

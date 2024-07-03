@@ -129,6 +129,9 @@ pub fn chain_version(chain_id: &str) -> u64 {
         .unwrap_or(0)
 }
 
+pub const TENDERMINT_CLIENT_PREFIX: &str = "07-tendermint-";
+pub const AGGRELITE_CLIENT_PREFIX: &str = "05-aggrelite-";
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ClientId(String);
 
@@ -150,6 +153,10 @@ impl ClientId {
     /// Get this identifier as a borrowed byte slice
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
+    }
+
+    pub fn check_type(&self, client_type_prefix: &str) -> bool {
+        self.0.starts_with(client_type_prefix)
     }
 }
 

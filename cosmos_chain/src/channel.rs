@@ -23,9 +23,15 @@ use types::{
             },
             version::Version,
         },
-        ics24_host::identifier::{ChainId, ChannelId, ClientId, ConnectionId, PortId},
+        ics24_host::identifier::{
+            ChainId, ChannelId, ClientId, ConnectionId, PortId, AGGRELITE_CLIENT_PREFIX,
+            TENDERMINT_CLIENT_PREFIX,
+        },
     },
     ibc_events::IbcEvent,
+    light_clients::{
+        header_type::AdjustHeadersType, ics07_tendermint::header::TENDERMINT_HEADER_TYPE_URL,
+    },
     message::Msg,
 };
 
@@ -594,7 +600,8 @@ impl Channel {
             .build_update_client_on_target_chain(proofs.height())
             .await?;
 
-        let update_event = self.target_chain()
+        let update_event = self
+            .target_chain()
             .send_messages_and_wait_commit(target_update_client_msgs)
             .await?;
 
@@ -822,26 +829,87 @@ impl Channel {
             .query_trusted_height(target_height, &client_id, &client_state)
             .await?;
 
-        let (target_header, support_headers) = self
-            .target_chain()
-            .adjust_headers(
-                trusted_height,
-                verified_blocks.target,
-                verified_blocks.supporting,
-            )
-            .await
-            .map(|(target_header, support_headers)| {
-                let header = AnyHeader::from(target_header);
-                let support: Vec<AnyHeader> = support_headers
-                    .into_iter()
-                    .map(|h| AnyHeader::from(h))
-                    .collect();
-                (header, support)
-            })?;
+        let (target_header, support_headers) = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
+            self.target_chain()
+                .adjust_headers(
+                    trusted_height,
+                    verified_blocks.target,
+                    verified_blocks.supporting,
+                    TENDERMINT_CLIENT_PREFIX,
+                )
+                .await
+                .map(|adjust_headers| match adjust_headers {
+                    AdjustHeadersType::Tendermint(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                    AdjustHeadersType::Aggrelite(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                })?
+        } else {
+            self.target_chain()
+                .adjust_headers(
+                    trusted_height,
+                    verified_blocks.target,
+                    verified_blocks.supporting,
+                    AGGRELITE_CLIENT_PREFIX,
+                )
+                .await
+                .map(|adjust_headers| match adjust_headers {
+                    AdjustHeadersType::Tendermint(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                    AdjustHeadersType::Aggrelite(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                })?
+        };
+        // let (target_header, support_headers) = self
+        //     .target_chain()
+        //     .adjust_headers(
+        //         trusted_height,
+        //         verified_blocks.target,
+        //         verified_blocks.supporting,
+        //     )
+        //     .await
+        //     .map(|(target_header, support_headers)| {
+        //         let header = AnyHeader::from(target_header);
+        //         let support: Vec<AnyHeader> = support_headers
+        //             .into_iter()
+        //             .map(|h| AnyHeader::from(h))
+        //             .collect();
+        //         (header, support)
+        //     })?;
 
         let signer = self.source_chain().account().get_signer()?;
 
         let mut msgs = vec![];
+
+        if client_id.check_type(TENDERMINT_HEADER_TYPE_URL) {}
         for header in support_headers {
             msgs.push(MsgUpdateClient {
                 header: header.into(),
@@ -911,22 +979,81 @@ impl Channel {
             .query_trusted_height(target_height, &client_id, &client_state)
             .await?;
 
-        let (target_header, support_headers) = self
-            .source_chain()
-            .adjust_headers(
-                trusted_height,
-                verified_blocks.target,
-                verified_blocks.supporting,
-            )
-            .await
-            .map(|(target_header, support_headers)| {
-                let header = AnyHeader::from(target_header);
-                let support: Vec<AnyHeader> = support_headers
-                    .into_iter()
-                    .map(|h| AnyHeader::from(h))
-                    .collect();
-                (header, support)
-            })?;
+        let (target_header, support_headers) = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
+            self.source_chain()
+                .adjust_headers(
+                    trusted_height,
+                    verified_blocks.target,
+                    verified_blocks.supporting,
+                    TENDERMINT_CLIENT_PREFIX,
+                )
+                .await
+                .map(|adjust_headers| match adjust_headers {
+                    AdjustHeadersType::Tendermint(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                    AdjustHeadersType::Aggrelite(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                })?
+        } else {
+            self.source_chain()
+                .adjust_headers(
+                    trusted_height,
+                    verified_blocks.target,
+                    verified_blocks.supporting,
+                    AGGRELITE_CLIENT_PREFIX,
+                )
+                .await
+                .map(|adjust_headers| match adjust_headers {
+                    AdjustHeadersType::Tendermint(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                    AdjustHeadersType::Aggrelite(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                })?
+        };
+        // let (target_header, support_headers) = self
+        //     .source_chain()
+        //     .adjust_headers(
+        //         trusted_height,
+        //         verified_blocks.target,
+        //         verified_blocks.supporting,
+        //     )
+        //     .await
+        //     .map(|(target_header, support_headers)| {
+        //         let header = AnyHeader::from(target_header);
+        //         let support: Vec<AnyHeader> = support_headers
+        //             .into_iter()
+        //             .map(|h| AnyHeader::from(h))
+        //             .collect();
+        //         (header, support)
+        //     })?;
 
         let signer = self.target_chain().account().get_signer()?;
 
@@ -1024,7 +1151,6 @@ impl Display for Channel {
             self.side_b.port_id(),
             self.side_b.version()
         )
-        
     }
 }
 
@@ -1044,9 +1170,9 @@ pub mod channel_tests {
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
     }
- 
+
     #[test]
-    pub fn channel_handshake_works() { 
+    pub fn channel_handshake_works() {
         init();
         let a_file_path =
             "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
