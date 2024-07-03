@@ -1,8 +1,9 @@
 use core::fmt::Debug;
+use ibc::apps::nft_transfer::handler;
 use ibc_proto::{google::protobuf::Any, Protobuf};
 use serde::{Deserialize, Serialize};
 
-use crate::{error::TypesError, ibc_core::ics24_host::identifier::ClientType, light_clients::ics07_tendermint::header::TENDERMINT_HEADER_TYPE_URL, timestamp::Timestamp};
+use crate::{error::TypesError, ibc_core::ics24_host::identifier::ClientType, light_clients::{aggrelite::{self, header::AGGRELITE_HEADER_TYPE_URL}, ics07_tendermint::header::TENDERMINT_HEADER_TYPE_URL}, timestamp::Timestamp};
 
 use super::height::Height;
 use crate::light_clients::ics07_tendermint::header::{ decode_header as tm_decode_header, Header as TmHeader};
@@ -35,24 +36,28 @@ pub fn decode_header(header_bytes: &[u8]) -> Result<AnyHeader, TypesError> {
 #[allow(clippy::large_enum_variant)]
 pub enum AnyHeader {
     Tendermint(TmHeader),
+    Aggrelite(aggrelite::header::Header),
 }
 
 impl Header for AnyHeader {
     fn client_type(&self) -> ClientType {
         match self {
             Self::Tendermint(header) => header.client_type(),
+            Self::Aggrelite(header) => header.client_type(),
         }
     }
 
     fn height(&self) -> Height {
         match self {
             Self::Tendermint(header) => header.height(),
+            Self::Aggrelite(header) => header.height(),
         }
     }
 
     fn timestamp(&self) -> Timestamp {
         match self {
             Self::Tendermint(header) => header.timestamp(),
+            Self::Aggrelite(header) => header.timestamp(),
         }
     }
 }
@@ -67,6 +72,10 @@ impl TryFrom<Any> for AnyHeader {
             TENDERMINT_HEADER_TYPE_URL => {
                 let val = tm_decode_header(raw.value.as_slice())?;
                 Ok(AnyHeader::Tendermint(val))
+            }
+            AGGRELITE_HEADER_TYPE_URL => {
+                let val = aggrelite::header::decode_header(raw.value.as_slice())?;
+                Ok(AnyHeader::Aggrelite(val))
             }
 
             _ => Err(TypesError::unknown_header_type(raw.type_url)),
@@ -83,6 +92,10 @@ impl From<AnyHeader> for Any {
                 type_url: TENDERMINT_HEADER_TYPE_URL.to_string(),
                 value: Protobuf::<RawHeader>::encode_vec(header),
             },
+            AnyHeader::Aggrelite(header) => Any {
+                type_url: AGGRELITE_HEADER_TYPE_URL.to_string(),
+                value: Protobuf::<RawHeader>::encode_vec(header),
+            }
         }
     }
 }
@@ -90,5 +103,11 @@ impl From<AnyHeader> for Any {
 impl From<TmHeader> for AnyHeader {
     fn from(header: TmHeader) -> Self {
         Self::Tendermint(header)
+    }
+}
+
+impl From<aggrelite::header::Header> for AnyHeader {
+    fn from(header: aggrelite::header::Header) -> Self {
+        Self::Aggrelite(header)
     }
 }

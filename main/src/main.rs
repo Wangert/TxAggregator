@@ -4,7 +4,7 @@
 //     Ok(())
 // }
 
-use magnetism::supervisor::Supervisor;
+use MosaicXC::supervisor::Supervisor;
 use std::error::Error;
 
 use cli::{client::Client, cmd::rootcmd::CMD};

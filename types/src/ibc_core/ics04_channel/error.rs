@@ -1,4 +1,5 @@
 use flex_error::{define_error, TraceError};
+use utils::crypto::CryptoError;
 
 use crate::{ibc_core::ics24_host::{error::IdentifierError, identifier::{ChannelId, PortId}}, timestamp::ParseTimestampError};
 
@@ -120,6 +121,11 @@ define_error! {
                 format_args!(
                     "String {0} cannot be converted to packet sequence",
                     e.value)
+            },
+        CryptoError
+            [ TraceError<CryptoError> ]
+            | _ | {
+                "crypto error."
             },
     }
 }

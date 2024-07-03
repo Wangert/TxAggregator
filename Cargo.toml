@@ -7,5 +7,5 @@ members = [
     "utils",
     "cli",
     "types",
-    "magnetism"
+    "MosaicXC"
 ]

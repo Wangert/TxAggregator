@@ -9,7 +9,7 @@ edition = "2021"
 cosmos_chain = { path = "../cosmos_chain" }
 cli = { path = "../cli" }
 types = { path = "../types"}
-magnetism = { path = "../magnetism"}
+MosaicXC = { path = "../MosaicXC"}
 
 tokio = { version = "1.28.2", features = ["rt-multi-thread", "time", "sync"] }
 http = "0.2.9"
