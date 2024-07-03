@@ -1,0 +1,5 @@
+name = "wjt"
+type = "local"
+address = "cosmos1klyu0qxaduarz0ue8mxqm7z3r4rg8sdxhsgmw4"
+pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"A01bKJdW0KiKtkEVWhLfWrcvLK2aeGIJyh+Zxm+aDb58\"}"
+mnemonic = "soul farm action thrive orient heart castle marble apple admit chief jar virus quantum engage choice discover quantum jungle practice sister sun slam blanket"

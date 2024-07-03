@@ -102,7 +102,7 @@ impl TryFrom<Any> for ConsensusState {
         }
 
         match raw.type_url.as_str() {
-            TENDERMINT_CONSENSUS_STATE_TYPE_URL => {
+            AGGRELITE_CONSENSUS_STATE_TYPE_URL => {
                 decode_consensus_state(raw.value.deref()).map_err(Into::into)
             }
             _ => Err(TypesError::unknown_consensus_state_type(raw.type_url)),
