@@ -114,8 +114,8 @@ impl Supervisor {
             .ok_or_else(Error::empty_chain_id)?;
 
         let client_settings = cosmos_chain_a.client_settings(&cosmos_chain_b.config);
-        let client_state = cosmos_chain_b.build_client_state(&client_settings).await?;
-        let consensus_state = cosmos_chain_b.build_consensus_state(&client_state).await?;
+        let client_state = cosmos_chain_b.build_client_state(&client_settings, types::light_clients::client_type::ClientType::Tendermint).await?;
+        let consensus_state = cosmos_chain_b.build_consensus_state(client_state.clone()).await?;
 
         let msgs = cosmos_chain_a
             .build_create_client_msg(client_state, consensus_state)

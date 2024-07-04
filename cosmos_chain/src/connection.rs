@@ -21,7 +21,7 @@ use types::{
         },
     },
     ibc_events::IbcEvent,
-    light_clients::header_type::AdjustHeadersType,
+    light_clients::{client_type::ClientStateType, header_type::AdjustHeadersType},
     message::Msg,
     timestamp::ZERO_DURATION,
 };
@@ -137,7 +137,7 @@ impl Connection {
             .await?;
         let client_state_validate = self
             .source_chain()
-            .validate_client_state(&client_id, &client_state)
+            .validate_client_state(&client_id, client_state.clone())
             .await;
 
         if let Some(e) = client_state_validate {
@@ -147,12 +147,12 @@ impl Connection {
         // Obtain the required block based on the target block height and client_state
         let verified_blocks = self
             .target_chain()
-            .query_light_blocks(&client_state, target_height)
+            .query_light_blocks(client_state.clone(), target_height)
             .await?;
 
         let trusted_height = self
             .source_chain()
-            .query_trusted_height(target_height, &client_id, &client_state)
+            .query_trusted_height(target_height, &client_id, client_state)
             .await?;
 
         let (target_header, support_headers) = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
@@ -283,7 +283,7 @@ impl Connection {
             .await?;
         let client_state_validate = self
             .target_chain()
-            .validate_client_state(&client_id, &client_state)
+            .validate_client_state(&client_id, client_state.clone())
             .await;
 
         if let Some(e) = client_state_validate {
@@ -293,12 +293,12 @@ impl Connection {
         // Obtain the required block based on the target block height and client_state
         let verified_blocks = self
             .source_chain()
-            .query_light_blocks(&client_state, target_height)
+            .query_light_blocks(client_state.clone(), target_height)
             .await?;
 
         let trusted_height = self
             .source_chain()
-            .query_trusted_height(target_height, &client_id, &client_state)
+            .query_trusted_height(target_height, &client_id, client_state)
             .await?;
 
         let (target_header, support_headers) = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
@@ -762,9 +762,14 @@ impl Connection {
             src_connection.counterparty().connection_id.clone()
         };
 
+        let client_state_any: Option<Any> = match client_state {
+            Some(ClientStateType::Tendermint(cs)) => Some(cs.into()),
+            Some(ClientStateType::Aggrelite(cs)) => Some(cs.into()),
+            _ => None,
+        };
         let new_msg = MsgConnectionOpenTry {
             client_id: self.side_b.client_id(),
-            client_state: client_state.map(Into::into),
+            client_state: client_state_any,
             previous_connection_id: None,
             counterparty,
             counterparty_versions,
@@ -866,10 +871,16 @@ impl Connection {
         // Get signer
         let signer = self.target_chain().account().get_signer()?;
 
+        let client_state_any: Option<Any> = match client_state {
+            Some(ClientStateType::Tendermint(cs)) => Some(cs.into()),
+            Some(ClientStateType::Aggrelite(cs)) => Some(cs.into()),
+            _ => None,
+        };
+
         let new_msg = MsgConnectionOpenAck {
             connection_id: dst_connection_id.clone(),
             counterparty_connection_id: src_connection_id.clone(),
-            client_state: client_state.map(Into::into),
+            client_state: client_state_any,
             proofs,
             version: src_connection.versions()[0].clone(),
             signer,

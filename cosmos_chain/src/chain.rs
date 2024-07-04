@@ -72,6 +72,7 @@ use types::{
     ibc_events::{IbcEvent, IbcEventWithHeight},
     light_clients::{
         aggrelite,
+        client_type::{ClientStateType, ClientType, ConsensusStateType},
         header_type::{
             AdjustHeadersType, AggreliteAdjustHeaders, HeaderType, TendermintAdjustHeaders,
         },
@@ -261,7 +262,8 @@ impl CosmosChain {
     pub async fn build_client_state(
         &self,
         client_settings: &ClientSettings,
-    ) -> Result<ClientState, Error> {
+        client_type: ClientType,
+    ) -> Result<ClientStateType, Error> {
         // query latest height
         let latest_block = self.query_latest_block().await?;
         let latest_height = Height::new(
@@ -297,18 +299,49 @@ impl CosmosChain {
         // set the client upgrade path
         let upgrade_path = vec!["upgrade".to_string(), "upgradedIBCState".to_string()];
 
-        let client_state = ClientState::new(
-            chain_id,
-            client_settings.trust_level,
-            trusting_period,
-            unbonding_period,
-            client_settings.max_clock_drift,
-            latest_height,
-            proof_specs,
-            upgrade_path,
-            allow_update,
-        )
-        .map_err(|e| Error::client_state("new client state failed".to_string(), e))?;
+        let client_state = match client_type {
+            ClientType::Tendermint => ClientStateType::Tendermint(
+                ics07_tendermint::client_state::ClientState::new(
+                    chain_id,
+                    client_settings.trust_level,
+                    trusting_period,
+                    unbonding_period,
+                    client_settings.max_clock_drift,
+                    latest_height,
+                    proof_specs,
+                    upgrade_path,
+                    allow_update,
+                )
+                .map_err(|e| Error::client_state("new client state failed".to_string(), e))?,
+            ),
+            ClientType::Aggrelite => ClientStateType::Aggrelite(
+                aggrelite::client_state::ClientState::new(
+                    chain_id,
+                    client_settings.trust_level,
+                    trusting_period,
+                    unbonding_period,
+                    client_settings.max_clock_drift,
+                    latest_height,
+                    proof_specs,
+                    upgrade_path,
+                    allow_update,
+                )
+                .map_err(|e| Error::client_state("new client state failed".to_string(), e))?,
+            ),
+        };
+
+        // let client_state = ClientState::new(
+        //     chain_id,
+        //     client_settings.trust_level,
+        //     trusting_period,
+        //     unbonding_period,
+        //     client_settings.max_clock_drift,
+        //     latest_height,
+        //     proof_specs,
+        //     upgrade_path,
+        //     allow_update,
+        // )
+        // .map_err(|e| Error::client_state("new client state failed".to_string(), e))?;
 
         Ok(client_state)
     }
@@ -329,8 +362,8 @@ impl CosmosChain {
 
     pub async fn build_consensus_state(
         &self,
-        client_state: &ClientState,
-    ) -> Result<ConsensusState, Error> {
+        client_state: ClientStateType,
+    ) -> Result<ConsensusStateType, Error> {
         let mut trpc_client = self.tendermint_rpc_client();
         build_consensus_state(&mut trpc_client, &self.config, client_state).await
     }
@@ -359,24 +392,65 @@ impl CosmosChain {
 
     pub async fn build_create_client_msg(
         &self,
-        client_state: ClientState,
-        consensus_state: ConsensusState,
+        client_state: ClientStateType,
+        consensus_state: ConsensusStateType,
     ) -> Result<Vec<Any>, Error> {
-        let msg_create_client = MsgCreateClient::new(
-            client_state.into(),
-            consensus_state.into(),
-            self.account().get_signer()?,
-        );
+        match (client_state, consensus_state) {
+            (ClientStateType::Tendermint(cli_s), ConsensusStateType::Tendermint(con_s)) => {
+                let msg_create_client = MsgCreateClient::new(
+                    cli_s.into(),
+                    con_s.into(),
+                    self.account().get_signer()?,
+                );
+        
+                let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
+                let protobuf_value = protobuf::encode_to_bytes(&ibc_msg_create_client)
+                    .map_err(|e| Error::utils_protobuf_encode("create client msg".to_string(), e))?;
+                let msg = Any {
+                    type_url: CREATE_CLIENT_TYPE_URL.to_string(),
+                    value: protobuf_value,
+                };
+        
+                Ok(vec![msg])
+            },
+            (ClientStateType::Aggrelite(cli_s), ConsensusStateType::Aggrelite(con_s)) => {
+                let msg_create_client = MsgCreateClient::new(
+                    cli_s.into(),
+                    con_s.into(),
+                    self.account().get_signer()?,
+                );
+        
+                let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
+                let protobuf_value = protobuf::encode_to_bytes(&ibc_msg_create_client)
+                    .map_err(|e| Error::utils_protobuf_encode("create client msg".to_string(), e))?;
+                let msg = Any {
+                    type_url: CREATE_CLIENT_TYPE_URL.to_string(),
+                    value: protobuf_value,
+                };
+        
+                Ok(vec![msg])
+            },
+            _ => {
+                Err(Error::create_client())
+            }
+        }
+        
 
-        let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
-        let protobuf_value = protobuf::encode_to_bytes(&ibc_msg_create_client)
-            .map_err(|e| Error::utils_protobuf_encode("create client msg".to_string(), e))?;
-        let msg = Any {
-            type_url: CREATE_CLIENT_TYPE_URL.to_string(),
-            value: protobuf_value,
-        };
+        // let msg_create_client = MsgCreateClient::new(
+        //     cli_s.into(),
+        //     con_s.into(),
+        //     self.account().get_signer()?,
+        // );
 
-        Ok(vec![msg])
+        // let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
+        // let protobuf_value = protobuf::encode_to_bytes(&ibc_msg_create_client)
+        //     .map_err(|e| Error::utils_protobuf_encode("create client msg".to_string(), e))?;
+        // let msg = Any {
+        //     type_url: CREATE_CLIENT_TYPE_URL.to_string(),
+        //     value: protobuf_value,
+        // };
+
+        // Ok(vec![msg])
     }
 
     pub fn client_settings(&self, client_src_chain_config: &CosmosChainConfig) -> ClientSettings {
@@ -622,15 +696,9 @@ impl CosmosChain {
         client_id: &ClientId,
         query_height: QueryHeight,
         prove: bool,
-    ) -> Result<(ClientState, Option<MerkleProof>), Error> {
+    ) -> Result<(ClientStateType, Option<MerkleProof>), Error> {
         let mut trpc_client = self.tendermint_rpc_client();
-        trpc::abci::abci_query_client_state(
-            &mut trpc_client,
-            client_id.clone(),
-            query_height,
-            prove,
-        )
-        .await
+        trpc::abci::abci_query_client_state(&mut trpc_client, client_id, query_height, prove).await
     }
 
     pub async fn query_tendermint_status(&self) -> Result<TendermintStatus, Error> {
@@ -648,7 +716,7 @@ impl CosmosChain {
 
     pub async fn query_light_blocks(
         &self,
-        client_state: &ClientState,
+        client_state: ClientStateType,
         target_height: Height,
     ) -> Result<Verified<LightBlock>, Error> {
         let mut trpc_client = self.tendermint_rpc_client();
@@ -658,7 +726,7 @@ impl CosmosChain {
         verify_block_header_and_fetch_light_block(
             &mut trpc_client,
             &chain_config,
-            &client_state,
+            client_state,
             target_height,
             &chain_status.node_info.id,
             chain_status.sync_info.latest_block_time,
@@ -669,9 +737,13 @@ impl CosmosChain {
         &self,
         target_height: Height,
         client_id: &ClientId,
-        client_state: &ClientState,
+        client_state: ClientStateType,
     ) -> Result<Height, Error> {
-        let client_latest_height = client_state.latest_height;
+        let client_latest_height = match client_state {
+            ClientStateType::Tendermint(cs) => cs.latest_height,
+            ClientStateType::Aggrelite(cs) => cs.latest_height,
+        };
+        // let client_latest_height = client_state.latest_height;
 
         if client_latest_height < target_height {
             // If the latest height of the client is already lower than the
@@ -961,7 +1033,7 @@ impl CosmosChain {
         connection_id: &ConnectionId,
         client_id: &ClientId,
         height: Height,
-    ) -> Result<(Option<ClientState>, Proofs), Error> {
+    ) -> Result<(Option<ClientStateType>, Proofs), Error> {
         let (connection_end, maybe_connection_proof) = self
             .query_connection(connection_id, QueryHeight::Specific(height), true)
             .await?;
@@ -1012,11 +1084,16 @@ impl CosmosChain {
                         .map_err(Error::commitment_error)?,
                 );
 
+                let client_latest_height = match client_state.clone() {
+                    ClientStateType::Tendermint(cs) => cs.latest_height,
+                    ClientStateType::Aggrelite(cs) => cs.latest_height,
+                };
+
                 let consensus_state_proof = {
                     let (_, maybe_consensus_state_proof) = self
                         .query_client_consensus_state(
                             client_id,
-                            client_state.latest_height,
+                            client_latest_height,
                             QueryHeight::Specific(height),
                             true,
                         )
@@ -1033,7 +1110,7 @@ impl CosmosChain {
                     ConsensusProof::new(
                         CommitmentProofBytes::try_from(consensus_state_proof)
                             .map_err(Error::commitment_error)?,
-                        client_state.latest_height,
+                        client_latest_height,
                     )
                     .map_err(Error::proof_error)?,
                 );
@@ -1242,7 +1319,7 @@ impl CosmosChain {
     pub async fn validate_client_state(
         &self,
         client_id: &ClientId,
-        client_state: &ClientState,
+        client_state: ClientStateType,
     ) -> Option<Error> {
         let mut trpc_client = self.tendermint_rpc_client();
         validate_client_state(&mut trpc_client, client_id.clone(), client_state).await
@@ -1274,7 +1351,9 @@ impl CosmosChain {
         let (client_state, _) = self
             .query_client_state(&client_id, QueryHeight::Latest, true)
             .await?;
-        let client_state_validate = self.validate_client_state(&client_id, &client_state).await;
+        let client_state_validate = self
+            .validate_client_state(&client_id, client_state.clone())
+            .await;
 
         if let Some(e) = client_state_validate {
             return Err(e);
@@ -1282,11 +1361,11 @@ impl CosmosChain {
 
         // Obtain the required block based on the target block height and client_state
         let verified_blocks = self
-            .query_light_blocks(&client_state, target_height)
+            .query_light_blocks(client_state.clone(), target_height)
             .await?;
 
         let trusted_height = self
-            .query_trusted_height(target_height, &client_id, &client_state)
+            .query_trusted_height(target_height, &client_id, client_state)
             .await?;
 
         let (target_header, support_headers) = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
@@ -1373,7 +1452,7 @@ impl CosmosChain {
 fn generate_aggregate_packet(
     packets: Vec<Packet>,
     packets_proofs_map: HashMap<Packet, MerkleProofInfo>,
-    height: Height
+    height: Height,
 ) -> Result<AggregatePacket, Error> {
     let mut temp_aggregate_proof: HashMap<u64, HashMap<String, (InnerOp, Vec<u8>)>> =
         HashMap::new();
@@ -1486,7 +1565,7 @@ fn generate_aggregate_packet(
         packets_leaf_number,
         proof,
         signer: Signer::from_str("wjt").unwrap(),
-        height
+        height,
     };
 
     Ok(arrgegate_packet)
@@ -1500,12 +1579,13 @@ pub mod chain_tests {
     use log::info;
     use types::{
         ibc_core::{
-            ics02_client::height::Height, ics04_channel::{
+            ics02_client::height::Height,
+            ics04_channel::{
                 packet::{Packet, Sequence},
                 timeout::TimeoutHeight,
-            }, ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId}
-        },
-        timestamp::Timestamp,
+            },
+            ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId},
+        }, light_clients::client_type::ClientType, timestamp::Timestamp
     };
 
     use crate::{
@@ -1570,10 +1650,10 @@ pub mod chain_tests {
         // let rt_b = cosmos_chain_b.rt.clone();
         let client_settings = cosmos_chain_a.client_settings(&cosmos_chain_b.config);
         let client_state = rt
-            .block_on(cosmos_chain_b.build_client_state(&client_settings))
+            .block_on(cosmos_chain_b.build_client_state(&client_settings, ClientType::Tendermint))
             .expect("build client state error!");
         let consensus_state = rt
-            .block_on(cosmos_chain_b.build_consensus_state(&client_state))
+            .block_on(cosmos_chain_b.build_consensus_state(client_state.clone()))
             .expect("build consensus state error!");
         let msgs = rt
             .block_on(cosmos_chain_a.build_create_client_msg(client_state, consensus_state))
@@ -1720,8 +1800,8 @@ pub mod chain_tests {
 
         let hash_result = packet.to_hash_value();
         match hash_result {
-           Ok(hash) => println!("{:?}", hash),
-           Err(e) => println!("{}", e.to_string()) 
+            Ok(hash) => println!("{:?}", hash),
+            Err(e) => println!("{}", e.to_string()),
         }
     }
 
@@ -1887,7 +1967,8 @@ pub mod chain_tests {
         packets_proofs_map.insert(packets[1].clone(), mpi_2);
         packets_proofs_map.insert(packets[2].clone(), mpi_3);
 
-        let agg_pac = generate_aggregate_packet(packets, packets_proofs_map, Height::new(2, 222).unwrap());
+        let agg_pac =
+            generate_aggregate_packet(packets, packets_proofs_map, Height::new(2, 222).unwrap());
 
         match agg_pac {
             Ok(ap) => println!("{:#?}", ap),

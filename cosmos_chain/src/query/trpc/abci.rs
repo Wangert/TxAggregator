@@ -6,11 +6,15 @@ use types::{
         ics02_client::height::Height,
         ics23_commitment::merkle_tree::MerkleProof,
         ics24_host::{
-            identifier::ClientId,
+            identifier::{ClientId, TENDERMINT_CLIENT_PREFIX},
             path::{ClientConsensusStatePath, ClientStatePath, IBC_QUERY_PATH},
         },
     },
-    light_clients::ics07_tendermint::{client_state::ClientState, consensus_state::ConsensusState},
+    light_clients::{
+        aggrelite,
+        client_type::ClientStateType,
+        ics07_tendermint::{self, consensus_state::ConsensusState},
+    },
 };
 
 use crate::{common::QueryHeight, error::Error, query::types::AbciQuery};
@@ -48,11 +52,11 @@ pub async fn abci_query(
 
 pub async fn abci_query_client_state(
     trpc: &mut HttpClient,
-    client_id: ClientId,
+    client_id: &ClientId,
     query_height: QueryHeight,
     prove: bool,
-) -> Result<(ClientState, Option<MerkleProof>), Error> {
-    let client_state_path = ClientStatePath(client_id);
+) -> Result<(ClientStateType, Option<MerkleProof>), Error> {
+    let client_state_path = ClientStatePath(client_id.clone());
     let abci_query = abci_query(
         trpc,
         IBC_QUERY_PATH.into(),
@@ -62,8 +66,19 @@ pub async fn abci_query_client_state(
     )
     .await?;
 
-    let client_state: ClientState = Protobuf::<Any>::decode_vec(&abci_query.value)
-        .map_err(|e| Error::tendermint_protobuf_decode("client_state".to_string(), e))?;
+    let client_state = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
+        let client_state: ics07_tendermint::client_state::ClientState =
+            Protobuf::<Any>::decode_vec(&abci_query.value)
+                .map_err(|e| Error::tendermint_protobuf_decode("client_state".to_string(), e))?;
+
+        ClientStateType::Tendermint(client_state)
+    } else {
+        let client_state: aggrelite::client_state::ClientState =
+            Protobuf::<Any>::decode_vec(&abci_query.value)
+                .map_err(|e| Error::tendermint_protobuf_decode("client_state".to_string(), e))?;
+
+        ClientStateType::Aggrelite(client_state)
+    };
 
     Ok((
         client_state,
@@ -120,7 +135,7 @@ pub mod abci_tests {
             identifier::ClientId,
             path::{ClientStatePath, IBC_QUERY_PATH},
         },
-        light_clients::ics07_tendermint::client_state::ClientState,
+        light_clients::{client_type::ClientStateType, ics07_tendermint::client_state::ClientState},
     };
 
     use crate::{
@@ -186,7 +201,7 @@ pub mod abci_tests {
         let (client_state, _) = rt
             .block_on(trpc::abci::abci_query_client_state(
                 &mut trpc_client,
-                client_id.clone(),
+                &client_id,
                 query_height,
                 true,
             ))
@@ -194,10 +209,14 @@ pub mod abci_tests {
 
         println!("client_state: {:?}", client_state);
 
+        let client_latest_height = match client_state {
+            ClientStateType::Tendermint(cs) => cs.latest_height,
+            ClientStateType::Aggrelite(cs) => cs.latest_height,
+        };
         let consensus_state = rt.block_on(trpc::abci::abci_query_consensus_state(
             &mut trpc_client,
             client_id,
-            client_state.latest_height,
+            client_latest_height,
             query_height,
             true,
         ));
