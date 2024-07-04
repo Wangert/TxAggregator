@@ -51,7 +51,9 @@ use types::{
             version::Version,
         },
         ics04_channel::{
-            aggregate_packet::{AggregatePacket, ProofMeta, SubProof},
+            aggregate_packet::{
+                check_inner_op_is_contain_bytes, AggregatePacket, ProofMeta, SubProof,
+            },
             channel::ChannelEnd,
             events::WriteAcknowledgement,
             packet::{MsgAcknowledgement, Packet, RecvPacket, Sequence},
@@ -397,44 +399,39 @@ impl CosmosChain {
     ) -> Result<Vec<Any>, Error> {
         match (client_state, consensus_state) {
             (ClientStateType::Tendermint(cli_s), ConsensusStateType::Tendermint(con_s)) => {
-                let msg_create_client = MsgCreateClient::new(
-                    cli_s.into(),
-                    con_s.into(),
-                    self.account().get_signer()?,
-                );
-        
+                let msg_create_client =
+                    MsgCreateClient::new(cli_s.into(), con_s.into(), self.account().get_signer()?);
+
                 let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
-                let protobuf_value = protobuf::encode_to_bytes(&ibc_msg_create_client)
-                    .map_err(|e| Error::utils_protobuf_encode("create client msg".to_string(), e))?;
+                let protobuf_value =
+                    protobuf::encode_to_bytes(&ibc_msg_create_client).map_err(|e| {
+                        Error::utils_protobuf_encode("create client msg".to_string(), e)
+                    })?;
                 let msg = Any {
                     type_url: CREATE_CLIENT_TYPE_URL.to_string(),
                     value: protobuf_value,
                 };
-        
+
                 Ok(vec![msg])
-            },
-            (ClientStateType::Aggrelite(cli_s), ConsensusStateType::Aggrelite(con_s)) => {
-                let msg_create_client = MsgCreateClient::new(
-                    cli_s.into(),
-                    con_s.into(),
-                    self.account().get_signer()?,
-                );
-        
-                let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
-                let protobuf_value = protobuf::encode_to_bytes(&ibc_msg_create_client)
-                    .map_err(|e| Error::utils_protobuf_encode("create client msg".to_string(), e))?;
-                let msg = Any {
-                    type_url: CREATE_CLIENT_TYPE_URL.to_string(),
-                    value: protobuf_value,
-                };
-        
-                Ok(vec![msg])
-            },
-            _ => {
-                Err(Error::create_client())
             }
+            (ClientStateType::Aggrelite(cli_s), ConsensusStateType::Aggrelite(con_s)) => {
+                let msg_create_client =
+                    MsgCreateClient::new(cli_s.into(), con_s.into(), self.account().get_signer()?);
+
+                let ibc_msg_create_client = IbcMsgCreateClient::from(msg_create_client);
+                let protobuf_value =
+                    protobuf::encode_to_bytes(&ibc_msg_create_client).map_err(|e| {
+                        Error::utils_protobuf_encode("create client msg".to_string(), e)
+                    })?;
+                let msg = Any {
+                    type_url: CREATE_CLIENT_TYPE_URL.to_string(),
+                    value: protobuf_value,
+                };
+
+                Ok(vec![msg])
+            }
+            _ => Err(Error::create_client()),
         }
-        
 
         // let msg_create_client = MsgCreateClient::new(
         //     cli_s.into(),
@@ -858,8 +855,25 @@ impl CosmosChain {
                 // Check that the level number exists
                 // Record information about the level at which the leaf node is located
                 if let Some(proof_meta_map) = temp_aggregate_proof.get_mut(&leaf_number) {
-                    proof_meta_map
-                        .insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone()));
+                    // A Merkle verification node that determines whether the leaf is another node
+                    let mut delete_flag = false;
+                    for (_, (inner_op, _)) in proof_meta_map.into_iter() {
+                        let inner_op_clone = inner_op.clone();
+                        if check_inner_op_is_contain_bytes(inner_op_clone, leaf_hash.clone()) {
+                            delete_flag = true;
+                            break;
+                        }
+                    }
+
+                    if !delete_flag {
+                        proof_meta_map.insert(
+                            inner_op_str.clone(),
+                            (first_inner_op.clone(), leaf_hash.clone()),
+                        );
+                    }
+
+                    // proof_meta_map
+                    //     .insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone()));
                 } else {
                     let mut new_proof_meta_map = HashMap::new();
                     new_proof_meta_map
@@ -885,9 +899,32 @@ impl CosmosChain {
                         }
 
                         if let Ok(next_step_hash) = next_step_hash_result {
-                            proof_meta_map
-                                .insert(inner_op_str, (inner_op.clone(), next_step_hash.clone()));
-                            step_hash = next_step_hash
+                            // A Merkle verification node that determines whether the leaf is another node
+                            let mut delete_flag = false;
+                            for (_, (inner_op, _)) in proof_meta_map.into_iter() {
+                                let inner_op_clone = inner_op.clone();
+                                if check_inner_op_is_contain_bytes(
+                                    inner_op_clone,
+                                    next_step_hash.clone(),
+                                ) {
+                                    delete_flag = true;
+                                    break;
+                                }
+                            }
+
+                            if !delete_flag {
+                                proof_meta_map.insert(
+                                    inner_op_str,
+                                    (inner_op.clone(), next_step_hash.clone()),
+                                );
+                                step_hash = next_step_hash
+                            } else {
+                                break;
+                            }
+
+                            // proof_meta_map
+                            //     .insert(inner_op_str, (inner_op.clone(), next_step_hash.clone()));
+                            // step_hash = next_step_hash
                         }
                     } else {
                         let mut new_proof_meta_map = HashMap::new();
@@ -1585,7 +1622,9 @@ pub mod chain_tests {
                 timeout::TimeoutHeight,
             },
             ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId},
-        }, light_clients::client_type::ClientType, timestamp::Timestamp
+        },
+        light_clients::client_type::ClientType,
+        timestamp::Timestamp,
     };
 
     use crate::{

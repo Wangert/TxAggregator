@@ -154,3 +154,12 @@ impl ProofMeta {
         }
     }
 }
+
+pub fn check_inner_op_is_contain_bytes(mut inner_op: InnerOp, value: Vec<u8>) -> bool {
+    if inner_op.suffix.is_empty() {
+        inner_op.prefix.pop();
+        inner_op.prefix.ends_with(&value)
+    } else {
+        inner_op.suffix.ends_with(&value)
+    }
+}
