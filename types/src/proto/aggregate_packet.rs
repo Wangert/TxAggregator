@@ -44,9 +44,9 @@ pub struct InnerOp {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProofMeta {
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag = "2")]
     pub path_inner_op: ::core::option::Option<InnerOp>,
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes = "vec", tag = "1")]
     pub hash_value: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -60,15 +60,15 @@ pub struct SubProof {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregatePacket {
-    #[prost(message, repeated, tag = "1")]
-    pub proof: ::prost::alloc::vec::Vec<SubProof>,
-    #[prost(string, tag = "2")]
-    pub signer: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "3")]
+    pub proof: ::prost::alloc::vec::Vec<SubProof>,
+    #[prost(string, tag = "4")]
+    pub signer: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "1")]
     pub packets: ::prost::alloc::vec::Vec<Packet>,
-    #[prost(message, optional, tag = "4")]
+    #[prost(message, optional, tag = "5")]
     pub height: ::core::option::Option<super::height::Height>,
-    #[prost(uint64, repeated, tag = "5")]
+    #[prost(uint64, repeated, tag = "2")]
     pub packets_leaf_number: ::prost::alloc::vec::Vec<u64>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
