@@ -1,7 +1,7 @@
 use tendermint_rpc::HttpClient;
 use types::{
     ibc_core::ics24_host::identifier::ClientId,
-    light_clients::{client_type::ClientStateType, ics07_tendermint::client_state::ClientState},
+    light_clients::{client_type::{ClientStateType, ConsensusStateType}, ics07_tendermint::client_state::ClientState},
 };
 
 use crate::{common::QueryHeight, error::Error, query::trpc};
@@ -30,7 +30,11 @@ pub async fn validate_client_state(
                 Err(e) => return Some(e),
             };
         
-            let consensus_state_time = consensus_state.timestamp;
+            let consensus_state_time = match consensus_state {
+                ConsensusStateType::Tendermint(cs) => cs.timestamp,
+                ConsensusStateType::Aggrelite(cs) => cs.timestamp,
+            };
+            // let consensus_state_time = consensus_state.timestamp;
         
             let latest_block = trpc::block::latest_block(src_trpc).await;
         
@@ -64,8 +68,13 @@ pub async fn validate_client_state(
                 Ok(cs) => cs,
                 Err(e) => return Some(e),
             };
+
+            let consensus_state_time = match consensus_state {
+                ConsensusStateType::Tendermint(cs) => cs.timestamp,
+                ConsensusStateType::Aggrelite(cs) => cs.timestamp,
+            };
         
-            let consensus_state_time = consensus_state.timestamp;
+            // let consensus_state_time = consensus_state.timestamp;
         
             let latest_block = trpc::block::latest_block(src_trpc).await;
         

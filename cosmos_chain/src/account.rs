@@ -52,6 +52,7 @@ impl Secp256k1Account {
             ));
         }
 
+        println!("account address:{}", cosmos_key.address);
         Ok(Self {
             key_pair: Some(secp256k1_key_pair),
             address_bytes,

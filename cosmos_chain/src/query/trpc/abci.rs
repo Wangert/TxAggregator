@@ -12,7 +12,7 @@ use types::{
     },
     light_clients::{
         aggrelite,
-        client_type::ClientStateType,
+        client_type::{ClientStateType, ConsensusStateType},
         ics07_tendermint::{self, consensus_state::ConsensusState},
     },
 };
@@ -73,6 +73,7 @@ pub async fn abci_query_client_state(
 
         ClientStateType::Tendermint(client_state)
     } else {
+        println!("aggrelite client###");
         let client_state: aggrelite::client_state::ClientState =
             Protobuf::<Any>::decode_vec(&abci_query.value)
                 .map_err(|e| Error::tendermint_protobuf_decode("client_state".to_string(), e))?;
@@ -96,9 +97,9 @@ pub async fn abci_query_consensus_state(
     consensus_height: Height,
     query_height: QueryHeight,
     prove: bool,
-) -> Result<(ConsensusState, Option<MerkleProof>), Error> {
+) -> Result<(ConsensusStateType, Option<MerkleProof>), Error> {
     let consensus_state_path = ClientConsensusStatePath {
-        client_id,
+        client_id: client_id.clone(),
         epoch: consensus_height.revision_number(),
         height: consensus_height.revision_height(),
     };
@@ -112,8 +113,17 @@ pub async fn abci_query_consensus_state(
     )
     .await?;
 
-    let consensus_state: ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
+    let consensus_state = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
+        let consensus_state: ics07_tendermint::consensus_state::ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
         .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
+        
+        ConsensusStateType::Tendermint(consensus_state)
+    } else {
+        let consensus_state: aggrelite::consensus_state::ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
+        .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
+        
+        ConsensusStateType::Aggrelite(consensus_state)
+    };
 
     Ok((
         consensus_state,

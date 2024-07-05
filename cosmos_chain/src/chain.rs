@@ -176,6 +176,8 @@ impl CosmosChain {
         let chain_config = self.config.clone();
         let key_account = self.account();
 
+        println!("key address: {}", key_account.address());
+
         let account_detail =
             query_detail_account(&mut grpc_query_client, key_account.address().as_str()).await?;
 
@@ -665,7 +667,7 @@ impl CosmosChain {
         target_height: Height,
         query_height: QueryHeight,
         prove: bool,
-    ) -> Result<(ConsensusState, Option<MerkleProof>), Error> {
+    ) -> Result<(ConsensusStateType, Option<MerkleProof>), Error> {
         let mut trpc_client = self.tendermint_rpc_client();
         let data = ClientConsensusStatePath {
             client_id: client_id.clone(),
@@ -682,8 +684,18 @@ impl CosmosChain {
         )
         .await?;
 
-        let consensus_state: ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
+        let consensus_state = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
+            let consensus_state: ics07_tendermint::consensus_state::ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
             .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
+            
+            ConsensusStateType::Tendermint(consensus_state)
+        } else {
+            let consensus_state: aggrelite::consensus_state::ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
+            .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
+            
+            ConsensusStateType::Aggrelite(consensus_state)
+        };
+        
 
         Ok((consensus_state, abci_query.merkle_proof))
     }
@@ -1618,13 +1630,10 @@ pub mod chain_tests {
         ibc_core::{
             ics02_client::height::Height,
             ics04_channel::{
-                packet::{Packet, Sequence},
-                timeout::TimeoutHeight,
+                aggregate_packet::{AggregatePacket, ProofMeta, SubProof}, packet::{Packet, Sequence}, timeout::TimeoutHeight
             },
             ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId},
-        },
-        light_clients::client_type::ClientType,
-        timestamp::Timestamp,
+        }, light_clients::client_type::ClientType, message::Msg, timestamp::Timestamp
     };
 
     use crate::{
@@ -1642,9 +1651,9 @@ pub mod chain_tests {
     pub fn create_aggrelite_client_works() {
         init();
         let a_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_xc_chain_a.toml";
         let b_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_xc_chain_a.toml";
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
@@ -1677,9 +1686,9 @@ pub mod chain_tests {
     pub fn create_client_works() {
         init();
         let a_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_xc_chain_a.toml";
         let b_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_xc_chain_a.toml";
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
@@ -1689,7 +1698,7 @@ pub mod chain_tests {
         // let rt_b = cosmos_chain_b.rt.clone();
         let client_settings = cosmos_chain_a.client_settings(&cosmos_chain_b.config);
         let client_state = rt
-            .block_on(cosmos_chain_b.build_client_state(&client_settings, ClientType::Tendermint))
+            .block_on(cosmos_chain_b.build_client_state(&client_settings, ClientType::Aggrelite))
             .expect("build client state error!");
         let consensus_state = rt
             .block_on(cosmos_chain_b.build_consensus_state(client_state.clone()))
@@ -1755,7 +1764,7 @@ pub mod chain_tests {
     pub fn update_client_works() {
         init();
         let file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_xc_chain_a.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1764,7 +1773,7 @@ pub mod chain_tests {
         let target_height = rt
             .block_on(cosmos_chain.query_latest_height())
             .expect("query latest height error!");
-        let client_id = ClientId::from_str("07-tendermint-14").expect("client id error!");
+        let client_id = ClientId::from_str("05-aggrelite-0").expect("client id error!");
 
         let update_client_msgs = rt
             .block_on(cosmos_chain.build_update_client_own(&client_id, target_height))
@@ -1844,6 +1853,82 @@ pub mod chain_tests {
         }
     }
 
+    #[test]
+    pub fn send_aggregate_packet_works() {
+        let file_path =
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_xc_chain_a.toml";
+        let cosmos_chain = CosmosChain::new(file_path);
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        
+        let packet_1 = Packet {
+            sequence: Sequence::from_str("1").unwrap(),
+            source_port: PortId::from_str("blog").unwrap(),
+            source_channel: ChannelId::from_str("channel-1").unwrap(),
+            destination_port: PortId::from_str("blog").unwrap(),
+            destination_channel: ChannelId::from_str("channel-2").unwrap(),
+            data: "packet1".as_bytes().to_vec(),
+            timeout_height: TimeoutHeight::default(),
+            timeout_timestamp: Timestamp::default(),
+        };
+
+        let packet_2 = Packet {
+            sequence: Sequence::from_str("2").unwrap(),
+            source_port: PortId::from_str("blog").unwrap(),
+            source_channel: ChannelId::from_str("channel-1").unwrap(),
+            destination_port: PortId::from_str("blog").unwrap(),
+            destination_channel: ChannelId::from_str("channel-2").unwrap(),
+            data: "packet2".as_bytes().to_vec(),
+            timeout_height: TimeoutHeight::default(),
+            timeout_timestamp: Timestamp::default(),
+        };
+
+        let packet_3 = Packet {
+            sequence: Sequence::from_str("3").unwrap(),
+            source_port: PortId::from_str("blog").unwrap(),
+            source_channel: ChannelId::from_str("channel-1").unwrap(),
+            destination_port: PortId::from_str("blog").unwrap(),
+            destination_channel: ChannelId::from_str("channel-2").unwrap(),
+            data: "packet3".as_bytes().to_vec(),
+            timeout_height: TimeoutHeight::default(),
+            timeout_timestamp: Timestamp::default(),
+        };
+
+        let packets = vec![packet_1, packet_2, packet_3];
+
+        let subproof_1 = SubProof {
+            number: 1,
+            proof_meta_list: vec![ProofMeta{ hash_value: "test".as_bytes().to_vec(), path_inner_op: InnerOp {
+                hash: HASHOP_SHA256,
+                prefix: "1".as_bytes().to_vec(),
+                suffix: "1".as_bytes().to_vec(),
+            } }],
+        };
+
+        let proof = vec![subproof_1];
+
+        let signer = cosmos_chain.account().get_signer().unwrap();
+
+        let packets_leaf_number: Vec<u64> = vec![2, 3, 2];
+        let arrgegate_packet = AggregatePacket {
+            packets,
+            packets_leaf_number,
+            proof,
+            signer,
+            height: Height::new(1, 300).unwrap(),
+        };
+
+        let msgs = vec![arrgegate_packet.to_any()];
+
+        let aggregate_packet_result =
+            rt.block_on(cosmos_chain.send_messages_and_wait_commit(msgs));
+
+        match aggregate_packet_result {
+            Ok(event) => println!("Event: {:?}", event),
+            Err(e) => panic!("{}", e),
+        }
+
+    }
     #[test]
     pub fn generate_aggregate_packet_works() {
         let packet_1 = Packet {
