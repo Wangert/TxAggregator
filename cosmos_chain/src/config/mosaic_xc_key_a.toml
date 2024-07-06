@@ -1,0 +1,5 @@
+name = "wjt"
+type = "local"
+address = "cosmos1kyvfdqahf2hrqpcyz42ly8jg7lt0sypems8trg"
+pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"A4IlLmlVvX/h1lFRHY6FZDGM++XcZ3ZWIr/TU6e/SSpe\"}"
+mnemonic = "field guitar crystal oven taste cruel visit ski pass orange minor left banana weasel blame rifle enrich extra sugar warrior primary wife reflect zone"

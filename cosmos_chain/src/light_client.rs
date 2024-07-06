@@ -19,7 +19,7 @@ use tendermint_rpc::HttpClient;
 use tracing::trace;
 use types::{
     ibc_core::ics02_client::height::Height,
-    light_clients::{aggrelite, ics07_tendermint::{client_state::ClientState, header::Header}},
+    light_clients::{aggrelite, client_type::ClientStateType, ics07_tendermint::{client_state::ClientState, header::Header}},
 };
 
 use crate::{config::CosmosChainConfig, error::Error};
@@ -96,7 +96,7 @@ pub fn verify_block_header_and_fetch_aggrelite_light_block(
 pub fn verify_block_header_and_fetch_light_block(
     trpc: &mut HttpClient,
     chain_config: &CosmosChainConfig,
-    client_state: &ClientState,
+    client_state: ClientStateType,
     target_height: Height,
     node_id: &TendermintNodeId,
     sync_latest_block_time: Time,
@@ -151,7 +151,7 @@ pub fn verify_block_header_and_fetch_light_block(
 pub fn create_temporary_light_client(
     trpc: &mut HttpClient,
     chain_config: &CosmosChainConfig,
-    client_state: &ClientState,
+    client_state: ClientStateType,
     node_id: &TendermintNodeId,
     sync_latest_block_time: Time,
 ) -> TendermintLightClient {
@@ -160,9 +160,14 @@ pub fn create_temporary_light_client(
     let scheduler = scheduler::basic_bisecting_schedule;
 
     let trpc_io = build_light_client_io(trpc, chain_config, node_id);
+
+    let options = match client_state {
+        ClientStateType::Tendermint(cs) => cs.as_light_client_options(),
+        ClientStateType::Aggrelite(cs) => cs.as_light_client_options(),
+    };
     TendermintLightClient::new(
         node_id.clone(),
-        client_state.as_light_client_options(),
+        options,
         clock,
         scheduler,
         verifier,

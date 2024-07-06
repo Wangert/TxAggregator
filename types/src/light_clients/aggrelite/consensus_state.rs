@@ -2,14 +2,15 @@ use ibc::core::commitment_types::commitment::CommitmentRoot;
 use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::lightclients::tendermint::v1::ConsensusState as TmConsensusState;
 use ibc_proto::Protobuf;
-use serde::{Deserialize, Serialize};
-use tendermint::{Hash, time::Time, hash::Algorithm};
-use tendermint_proto::google::protobuf as TmProtobuf;
 use prost::Message;
+use serde::{Deserialize, Serialize};
+use tendermint::{hash::Algorithm, time::Time, Hash};
+use tendermint_proto::google::protobuf as TmProtobuf;
 
 use crate::error::TypesError;
 
-pub const AGGRELITE_CONSENSUS_STATE_TYPE_URL: &str = "/ibc.lightclients.aggrelite.v1.ConsensusState";
+pub const AGGRELITE_CONSENSUS_STATE_TYPE_URL: &str =
+    "/ibc.lightclients.aggrelite.v1.ConsensusState";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsensusState {
@@ -101,6 +102,8 @@ impl TryFrom<Any> for ConsensusState {
                 .try_into()
         }
 
+        println!("raw.type_url: {:?}", raw.type_url.as_str());
+
         match raw.type_url.as_str() {
             AGGRELITE_CONSENSUS_STATE_TYPE_URL => {
                 decode_consensus_state(raw.value.deref()).map_err(Into::into)
@@ -128,4 +131,3 @@ impl From<tendermint::block::Header> for ConsensusState {
         }
     }
 }
-

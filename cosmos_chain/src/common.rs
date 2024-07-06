@@ -13,7 +13,7 @@ use types::{
         ics02_client::height::Height,
         ics24_host::identifier::{ChainId, ClientId},
     },
-    light_clients::ics07_tendermint::client_state::ClientState,
+    light_clients::{client_type::ClientStateType, ics07_tendermint::client_state::ClientState},
 };
 
 use crate::{
@@ -119,10 +119,14 @@ pub async fn query_latest_height(trpc: &mut HttpClient) -> Result<Height, Error>
 pub async fn query_trusted_height(
     dst_grpc: &mut IbcClientQueryClient<Channel>,
     client_id: ClientId,
-    client_state: &ClientState,
+    client_state: ClientStateType,
     target_height: Height,
 ) -> Result<Height, Error> {
-    let client_state_latest_height = client_state.latest_height;
+    let client_state_latest_height = match client_state {
+        ClientStateType::Tendermint(cs) => cs.latest_height,
+        ClientStateType::Aggrelite(cs) => cs.latest_height,
+    };
+    // let client_state_latest_height = client_state.latest_height;
 
     if client_state_latest_height < target_height {
         return Ok(client_state_latest_height);

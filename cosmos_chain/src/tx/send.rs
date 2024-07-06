@@ -327,6 +327,7 @@ pub mod tx_send_tests {
                 &create_client_options,
                 &src_chain_config,
                 &dst_chain_config,
+                types::light_clients::client_type::ClientType::Tendermint,
             ))
             .expect("msg_create_client error!");
 

@@ -267,7 +267,8 @@ define_error! {
             |_| { "leaf key or value is empty" },
         ChildIsEmpty
             |_| { "child is empty" },
-    }
+        CreateClient
+            |_| { "create client error" },    }
 }
 
 flex_error::define_error! {

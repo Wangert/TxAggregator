@@ -17,11 +17,16 @@ use types::{
         ics23_commitment::specs::ProofSpecs,
         ics24_host::identifier::{chain_version, ChainId, ClientId},
     },
-    light_clients::{aggrelite, ics07_tendermint::{
-        client_state::{AllowUpdate, ClientState},
-        consensus_state::ConsensusState,
-        trust_level::TrustLevel,
-    }},
+    light_clients::{
+        aggrelite,
+        client_type::{ClientStateType, ClientType, ConsensusStateType},
+        ics07_tendermint::{
+            self,
+            client_state::{AllowUpdate, ClientState},
+            consensus_state::ConsensusState,
+            trust_level::TrustLevel,
+        },
+    },
     signer::Signer,
 };
 
@@ -31,7 +36,10 @@ use crate::{
     common::{parse_protobuf_duration, query_latest_height, query_trusted_height, QueryHeight},
     config::{CosmosChainConfig, TrustThreshold},
     error::Error,
-    light_client::{verify_block_header_and_fetch_aggrelite_light_block, verify_block_header_and_fetch_light_block},
+    light_client::{
+        verify_block_header_and_fetch_aggrelite_light_block,
+        verify_block_header_and_fetch_light_block,
+    },
     query::{grpc, trpc},
     validate::validate_client_state,
 };
@@ -60,20 +68,20 @@ pub async fn build_update_client_request(
     // query and verify the latest client_state of src_chain on the dst_chain
     let (client_state, _) = rt.block_on(trpc::abci::abci_query_client_state(
         dst_trpc_client,
-        client_id.clone(),
+        &client_id,
         QueryHeight::Latest,
         true,
     ))?;
 
     let client_state_validate =
-        validate_client_state(src_trpc_client, client_id.clone(), &client_state).await;
+        validate_client_state(src_trpc_client, client_id.clone(), client_state.clone()).await;
 
     if let Some(e) = client_state_validate {
         return Err(e);
     }
 
     let trusted_height =
-        query_trusted_height(dst_grpc_client, client_id, &client_state, target_height).await?;
+        query_trusted_height(dst_grpc_client, client_id, client_state, target_height).await?;
 
     // if trusted_height >= target_height {
     //     warn!(
@@ -95,6 +103,7 @@ pub async fn build_create_client_request(
     create_client_options: &CreateClientOptions,
     src_chain_config: &CosmosChainConfig,
     dst_chain_config: &CosmosChainConfig,
+    client_type: ClientType,
 ) -> Result<MsgCreateClient, Error> {
     // client state
     let client_state = build_client_state(
@@ -103,32 +112,39 @@ pub async fn build_create_client_request(
         create_client_options,
         src_chain_config,
         dst_chain_config,
-    ).await?;
+        client_type,
+    )
+    .await?;
 
     println!("access build consensus state");
 
     // consensus state
-    let consensus_state = build_consensus_state(
-        trpc_client,
-        src_chain_config,
-        &client_state,
-    ).await?;
+    let consensus_state =
+        build_consensus_state(trpc_client, src_chain_config, client_state.clone()).await?;
 
     // signer
-    let account = Secp256k1Account::new(
-        &src_chain_config.chain_key_path,
-        &src_chain_config.hd_path,
-    )?;
+    let account =
+        Secp256k1Account::new(&src_chain_config.chain_key_path, &src_chain_config.hd_path)?;
     let signer: Signer = account
         .address()
         .parse()
         .map_err(|e| Error::signer("address parse".to_string(), e))?;
 
-    Ok(MsgCreateClient::new(
-        client_state.into(),
-        consensus_state.into(),
-        signer,
-    ))
+    match (client_state, consensus_state) {
+        (ClientStateType::Tendermint(cli_s), ConsensusStateType::Tendermint(con_s)) => {
+            Ok(MsgCreateClient::new(cli_s.into(), con_s.into(), signer))
+        }
+        (ClientStateType::Aggrelite(cli_s), ConsensusStateType::Aggrelite(con_s)) => {
+            Ok(MsgCreateClient::new(cli_s.into(), con_s.into(), signer))
+        }
+        _ => Err(Error::create_client()),
+    }
+
+    // Ok(MsgCreateClient::new(
+    //     client_state.into(),
+    //     consensus_state.into(),
+    //     signer,
+    // ))
 }
 
 pub async fn build_client_state(
@@ -137,7 +153,8 @@ pub async fn build_client_state(
     create_client_options: &CreateClientOptions,
     src_chain_config: &CosmosChainConfig,
     dst_chain_config: &CosmosChainConfig,
-) -> Result<ClientState, Error> {
+    client_type: ClientType,
+) -> Result<ClientStateType, Error> {
     // query latest height
     let latest_block = trpc::block::latest_block(trpc_client).await?;
     // let abci_info = trpc::abci::abci_info(trpc_client).await?;
@@ -157,7 +174,8 @@ pub async fn build_client_state(
         ClientSettings::new(create_client_options, src_chain_config, dst_chain_config);
 
     // Get unbonding_period in the parameter list of the staking module
-    let unbonding_period = grpc::staking::query_staking_params(grpc_staking_client).await?
+    let unbonding_period = grpc::staking::query_staking_params(grpc_staking_client)
+        .await?
         .unbonding_time
         .ok_or_else(|| {
             Error::cosmos_params("empty unbonding time in staking params".to_string())
@@ -178,19 +196,49 @@ pub async fn build_client_state(
     // set the client upgrade path
     let upgrade_path = vec!["upgrade".to_string(), "upgradedIBCState".to_string()];
 
-    // new a client state
-    let client_state = ClientState::new(
-        chain_id,
-        client_settings.trust_level,
-        trusting_period,
-        unbonding_period,
-        client_settings.max_clock_drift,
-        latest_height,
-        proof_specs,
-        upgrade_path,
-        allow_update,
-    )
-    .map_err(|e| Error::client_state("new client state failed".to_string(), e))?;
+    let client_state = match client_type {
+        ClientType::Tendermint => ClientStateType::Tendermint(
+            ics07_tendermint::client_state::ClientState::new(
+                chain_id,
+                client_settings.trust_level,
+                trusting_period,
+                unbonding_period,
+                client_settings.max_clock_drift,
+                latest_height,
+                proof_specs,
+                upgrade_path,
+                allow_update,
+            )
+            .map_err(|e| Error::client_state("new client state failed".to_string(), e))?,
+        ),
+        ClientType::Aggrelite => ClientStateType::Aggrelite(
+            aggrelite::client_state::ClientState::new(
+                chain_id,
+                client_settings.trust_level,
+                trusting_period,
+                unbonding_period,
+                client_settings.max_clock_drift,
+                latest_height,
+                proof_specs,
+                upgrade_path,
+                allow_update,
+            )
+            .map_err(|e| Error::client_state("new client state failed".to_string(), e))?,
+        ),
+    };
+    // // new a client state
+    // let client_state = ClientState::new(
+    //     chain_id,
+    //     client_settings.trust_level,
+    //     trusting_period,
+    //     unbonding_period,
+    //     client_settings.max_clock_drift,
+    //     latest_height,
+    //     proof_specs,
+    //     upgrade_path,
+    //     allow_update,
+    // )
+    // .map_err(|e| Error::client_state("new client state failed".to_string(), e))?;
 
     Ok(client_state)
 }
@@ -198,21 +246,46 @@ pub async fn build_client_state(
 pub async fn build_consensus_state(
     trpc: &mut HttpClient,
     chain_config: &CosmosChainConfig,
-    client_state: &ClientState,
-) -> Result<ConsensusState, Error> {
+    client_state: ClientStateType,
+) -> Result<ConsensusStateType, Error> {
     let status = trpc::consensus::tendermint_status(trpc).await?;
 
-    info!("status.node_info.id: {:?}", status.node_info.id);
-    let verified_block = verify_block_header_and_fetch_light_block(
-        trpc,
-        chain_config,
-        client_state,
-        client_state.latest_height,
-        &status.node_info.id,
-        status.sync_info.latest_block_time,
-    )?;
+    match client_state.clone() {
+        ClientStateType::Tendermint(cs) => {
+            info!("status.node_info.id: {:?}", status.node_info.id);
+            let verified_block = verify_block_header_and_fetch_light_block(
+                trpc,
+                chain_config,
+                client_state,
+                cs.latest_height,
+                &status.node_info.id,
+                status.sync_info.latest_block_time,
+            )?;
 
-    Ok(ConsensusState::from(verified_block.target.signed_header.header))
+            Ok(ConsensusStateType::Tendermint(
+                ics07_tendermint::consensus_state::ConsensusState::from(
+                    verified_block.target.signed_header.header,
+                ),
+            ))
+        }
+        ClientStateType::Aggrelite(cs) => {
+            info!("status.node_info.id: {:?}", status.node_info.id);
+            let verified_block = verify_block_header_and_fetch_light_block(
+                trpc,
+                chain_config,
+                client_state,
+                cs.latest_height,
+                &status.node_info.id,
+                status.sync_info.latest_block_time,
+            )?;
+
+            Ok(ConsensusStateType::Aggrelite(
+                aggrelite::consensus_state::ConsensusState::from(
+                    verified_block.target.signed_header.header,
+                ),
+            ))
+        }
+    }
 }
 
 pub async fn build_aggrelite_consensus_state(
@@ -232,7 +305,9 @@ pub async fn build_aggrelite_consensus_state(
         status.sync_info.latest_block_time,
     )?;
 
-    Ok(ConsensusState::from(verified_block.target.signed_header.header))
+    Ok(ConsensusState::from(
+        verified_block.target.signed_header.header,
+    ))
 }
 
 #[derive(Debug, Default)]
