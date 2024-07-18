@@ -28,7 +28,7 @@ use types::{
             TENDERMINT_CLIENT_PREFIX,
         },
     },
-    ibc_events::IbcEvent,
+    ibc_events::{IbcEvent, IbcEventWithHeight},
     light_clients::{
         header_type::AdjustHeadersType, ics07_tendermint::header::TENDERMINT_HEADER_TYPE_URL,
     },
@@ -425,7 +425,11 @@ impl Channel {
         let events = self
             .target_chain()
             .send_messages_and_wait_commit(msgs)
-            .await?;
+            .await?
+            .iter()
+            .map(|tx| tx.ibc_events.clone())
+            .flatten()
+            .collect::<Vec<IbcEventWithHeight>>();
 
         // Find the relevant event for channel open init
         let result = events
@@ -452,7 +456,11 @@ impl Channel {
         let events = self
             .target_chain()
             .send_messages_and_wait_commit(msgs)
-            .await?;
+            .await?
+            .iter()
+            .map(|tx| tx.ibc_events.clone())
+            .flatten()
+            .collect::<Vec<IbcEventWithHeight>>();
 
         // Find the relevant event for channel open try
         let result = events
@@ -479,7 +487,11 @@ impl Channel {
         let events = self
             .target_chain()
             .send_messages_and_wait_commit(msgs)
-            .await?;
+            .await?
+            .iter()
+            .map(|tx| tx.ibc_events.clone())
+            .flatten()
+            .collect::<Vec<IbcEventWithHeight>>();
 
         // Find the relevant event for channel open ack
         let result = events
@@ -506,7 +518,11 @@ impl Channel {
         let events = self
             .target_chain()
             .send_messages_and_wait_commit(msgs)
-            .await?;
+            .await?
+            .iter()
+            .map(|tx| tx.ibc_events.clone())
+            .flatten()
+            .collect::<Vec<IbcEventWithHeight>>();
 
         // Find the relevant event for channel open confirm
         let result = events

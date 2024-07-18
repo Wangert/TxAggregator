@@ -32,6 +32,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc, thread, time::Duration}
 use tendermint::{
     abci::response::Info,
     block::{Header as TendermintHeader, Height as TendermintHeight},
+    hash::Hash as TxHash,
 };
 use tendermint_light_client::types::LightBlock;
 use tendermint_rpc::{Client, HttpClient};
@@ -71,7 +72,7 @@ use types::{
             path::{ClientConsensusStatePath, IBC_QUERY_PATH},
         },
     },
-    ibc_events::{IbcEvent, IbcEventWithHeight},
+    ibc_events::{IbcEvent, IbcEventWithHeight, TxEventsWithHeightAndGasUsed},
     light_clients::{
         aggrelite,
         client_type::{ClientStateType, ClientType, ConsensusStateType},
@@ -166,7 +167,7 @@ impl CosmosChain {
     pub async fn send_messages_and_wait_commit(
         &self,
         msgs: Vec<Any>,
-    ) -> Result<Vec<IbcEventWithHeight>, Error> {
+    ) -> Result<Vec<TxEventsWithHeightAndGasUsed>, Error> {
         if msgs.is_empty() {
             return Ok(vec![]);
         }
@@ -202,7 +203,11 @@ impl CosmosChain {
             )
             .await?;
 
-            ibc_events_with_height.extend(tx_results.events);
+            let tx_events = TxEventsWithHeightAndGasUsed {
+                ibc_events: tx_results.events,
+                gas_used: tx_results.gas_used,
+            };
+            ibc_events_with_height.push(tx_events);
         }
 
         Ok(ibc_events_with_height)
@@ -816,7 +821,8 @@ impl CosmosChain {
 
                                 // println!("path:{:?}", ep.path.clone());
                                 // println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
-                                ep.path.clone()},
+                                ep.path.clone()
+                            }
                             _ => vec![],
                         })
                         .flatten()
@@ -831,7 +837,7 @@ impl CosmosChain {
                     // println!("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                     for i in 0..(packet_proof.proofs.len() - 1) {
                         let index: i64 = match &packet_proof.proofs[i].proof {
-                            Some(Proof::Exist(ep)) => (ep.path.len()+1) as i64,
+                            Some(Proof::Exist(ep)) => (ep.path.len() + 1) as i64,
                             _ => -1,
                         };
 
@@ -894,7 +900,7 @@ impl CosmosChain {
         packets: Vec<Packet>,
         target_signer: Signer,
         height: Height,
-    ) -> Result<AggregatePacket, Error> {
+    ) -> Result<(AggregatePacket, usize), Error> {
         let packets_proofs_map = self
             .query_packets_merkle_proof_infos(packets.clone(), &height)
             .await?;
@@ -947,8 +953,10 @@ impl CosmosChain {
                     //     .insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone()));
                 } else {
                     let mut new_proof_meta_map = HashMap::new();
-                    new_proof_meta_map
-                        .insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone(), vec![]));
+                    new_proof_meta_map.insert(
+                        inner_op_str,
+                        (first_inner_op.clone(), leaf_hash.clone(), vec![]),
+                    );
                     temp_aggregate_proof.insert(leaf_number, new_proof_meta_map);
                 }
 
@@ -977,7 +985,10 @@ impl CosmosChain {
                                 temp_aggregate_proof.get_mut(&(number + 1))
                             {
                                 let k = inner_op_to_base64_string(&pre_inner_op);
-                                proof_meta_map.insert(k, (pre_inner_op.clone(), step_hash.clone(), h.clone()));
+                                proof_meta_map.insert(
+                                    k,
+                                    (pre_inner_op.clone(), step_hash.clone(), h.clone()),
+                                );
                             };
 
                             h
@@ -1055,8 +1066,10 @@ impl CosmosChain {
                         //     calculate_next_step_hash(&pre_inner_op, step_hash.clone());
                         if let Ok(next_step_hash) = next_step_hash_result {
                             let mut new_proof_meta_map = HashMap::new();
-                            new_proof_meta_map
-                                .insert(inner_op_str, (inner_op.clone(), next_step_hash.clone(), vec![]));
+                            new_proof_meta_map.insert(
+                                inner_op_str,
+                                (inner_op.clone(), next_step_hash.clone(), vec![]),
+                            );
                             temp_aggregate_proof.insert(number, new_proof_meta_map);
 
                             step_hash = next_step_hash;
@@ -1107,7 +1120,9 @@ impl CosmosChain {
             leafops,
         };
 
-        Ok(arrgegate_packet)
+        let hash_count = count_number_of_hash_computations_aggre(&arrgegate_packet);
+
+        Ok((arrgegate_packet, hash_count))
     }
 
     // Built from the generating end of an event
@@ -1127,10 +1142,11 @@ impl CosmosChain {
             )
             .await?;
 
-        println!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
-        println!("MerkleProof: {:#?}", proof);
-
         let packet_proof = proof.ok_or_else(|| Error::empty_response_proof())?;
+        let hash_count = count_number_of_hash_computations(&packet_proof) + 1;
+        println!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+        println!("MerkleProof: {:?}", packet_proof);
+        println!("Number of on-chain hash computations: {:?}", hash_count);
 
         let proofs = Proofs::new(
             CommitmentProofBytes::try_from(packet_proof).map_err(Error::commitment_error)?,
@@ -1144,6 +1160,7 @@ impl CosmosChain {
 
         let recv_packet = RecvPacket::new(packet.clone(), proofs, target_signer);
 
+        println!("Recv_Packet_Size: {}", std::mem::size_of_val(&recv_packet));
         Ok(vec![recv_packet.to_any()])
     }
 
@@ -1640,11 +1657,16 @@ fn generate_aggregate_packet(
             // Check that the level number exists
             // Record information about the level at which the leaf node is located
             if let Some(proof_meta_map) = temp_aggregate_proof.get_mut(&leaf_number) {
-                proof_meta_map.insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone(), vec![]));
+                proof_meta_map.insert(
+                    inner_op_str,
+                    (first_inner_op.clone(), leaf_hash.clone(), vec![]),
+                );
             } else {
                 let mut new_proof_meta_map = HashMap::new();
-                new_proof_meta_map
-                    .insert(inner_op_str, (first_inner_op.clone(), leaf_hash.clone(), vec![]));
+                new_proof_meta_map.insert(
+                    inner_op_str,
+                    (first_inner_op.clone(), leaf_hash.clone(), vec![]),
+                );
                 temp_aggregate_proof.insert(leaf_number, new_proof_meta_map);
             }
 
@@ -1668,14 +1690,17 @@ fn generate_aggregate_packet(
 
                     println!("{}:new inner op", number);
                     if let Ok(next_step_hash) = next_step_hash_result {
-                        proof_meta_map
-                            .insert(inner_op_str, (inner_op.clone(), next_step_hash.clone(), vec![]));
+                        proof_meta_map.insert(
+                            inner_op_str,
+                            (inner_op.clone(), next_step_hash.clone(), vec![]),
+                        );
                         step_hash = next_step_hash
                     }
                 } else {
                     println!("new number");
                     let mut new_proof_meta_map = HashMap::new();
-                    new_proof_meta_map.insert(inner_op_str, (inner_op.clone(), step_hash.clone(), vec![]));
+                    new_proof_meta_map
+                        .insert(inner_op_str, (inner_op.clone(), step_hash.clone(), vec![]));
                     temp_aggregate_proof.insert(number, new_proof_meta_map);
                 }
 
@@ -1734,6 +1759,32 @@ fn generate_aggregate_packet(
     };
 
     Ok(arrgegate_packet)
+}
+
+pub fn count_number_of_hash_computations(proof: &MerkleProof) -> usize {
+    proof
+        .proofs
+        .iter()
+        .map(|p| match p.proof.clone() {
+            Some(Proof::Exist(ep)) => ep.path.len(),
+            _ => 0,
+        })
+        .collect_vec()
+        .iter()
+        .sum()
+}
+
+pub fn count_number_of_hash_computations_aggre(a_packet: &AggregatePacket) -> usize {
+    let packets_len = a_packet.packets.len();
+    let pm_count: usize = a_packet
+        .proof
+        .iter()
+        .map(|sp| sp.proof_meta_list.len())
+        .collect_vec()
+        .iter()
+        .sum();
+
+    packets_len + pm_count
 }
 
 #[cfg(test)]
@@ -1885,7 +1936,7 @@ pub mod chain_tests {
     pub fn update_client_works() {
         init();
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_xc_test.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();

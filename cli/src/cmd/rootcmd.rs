@@ -81,7 +81,9 @@ lazy_static! {
                 .subcommand(
                     Command::new("start").about("start chain managers")
                         .arg(arg!(-m --mode <START_MODE>))
-                ),
+                )
+                .subcommand(
+                    Command::new("querytotalgas").about("query current total gas of txs")),
         );
     static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands();
 }

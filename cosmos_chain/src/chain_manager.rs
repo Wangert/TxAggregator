@@ -14,7 +14,7 @@ use types::{
         },
         ics24_host::identifier::ChainId,
     },
-    ibc_events::{IbcEvent, IbcEventWithHeight},
+    ibc_events::{IbcEvent, IbcEventWithHeight, TxEventsWithHeightAndGasUsed},
     message::Msg,
 };
 
@@ -83,9 +83,7 @@ impl ChainManager {
                     loop {
                         let mut new_group = vec![];
                         if events.len() > group_size {
-                            new_group = events
-                                .drain(..group_size)
-                                .collect::<CTXGroup>();
+                            new_group = events.drain(..group_size).collect::<CTXGroup>();
                             groups.push(new_group.clone());
                             // println!("200:{:?}", new_group);
                         } else {
@@ -96,7 +94,6 @@ impl ChainManager {
                             // println!("小于200:{:?}", new_group);
                             break;
                         }
-                        
                     }
 
                     println!("groups_num: {}", groups.len());
@@ -105,7 +102,7 @@ impl ChainManager {
                 }
 
                 tokio::time::sleep(Duration::from_secs(2)).await;
-            };
+            }
         });
     }
 
@@ -123,7 +120,11 @@ impl ChainManager {
         }
     }
 
-    pub fn events_handler(&mut self, channels: Arc<RwLock<ChannelPool>>) {
+    pub fn events_handler(
+        &mut self,
+        channels: Arc<RwLock<ChannelPool>>,
+        completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>,
+    ) {
         let ep = self.event_pool.clone();
         let chain_id = self.chain_id();
         tokio::spawn(async move {
@@ -137,11 +138,13 @@ impl ChainManager {
                                 search_channel(channels.clone(), &send_packet.packet).await;
                             match channel_result {
                                 Ok(chan) => {
+                                    let completed_txs_clone = completed_txs.clone();
                                     send_packet_handler_task(
                                         chain_id.clone(),
                                         chan,
                                         send_packet.packet,
                                         event_with_height.height,
+                                        completed_txs_clone,
                                     );
                                 }
                                 Err(e) => {
@@ -253,7 +256,11 @@ impl ChainManager {
         });
     }
 
-    pub fn events_aggregate_send_packet_handler(&mut self, channels: Arc<RwLock<ChannelPool>>) {
+    pub fn events_aggregate_send_packet_handler(
+        &mut self,
+        channels: Arc<RwLock<ChannelPool>>,
+        completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>,
+    ) {
         let ep = self.event_pool.clone();
         let chain_id = self.chain_id();
         tokio::spawn(async move {
@@ -279,7 +286,8 @@ impl ChainManager {
                     }
                     match channel_result {
                         Ok(chan) => {
-                            send_packet_aggregate_handler_task(chain_id.clone(), chan, events);
+                            let completed_txs_clone = completed_txs.clone();
+                            send_packet_aggregate_handler_task(chain_id.clone(), chan, events, completed_txs_clone);
                         }
                         Err(e) => {
                             eprintln!("channel read error: {:?}", e);
@@ -293,7 +301,7 @@ impl ChainManager {
         });
     }
 
-    pub fn events_aggregate_write_ack_handler(&mut self, channels: Arc<RwLock<ChannelPool>>) {
+    pub fn events_aggregate_write_ack_handler(&mut self, channels: Arc<RwLock<ChannelPool>>, completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>) {
         let ep = self.event_pool.clone();
         let chain_id = self.chain_id();
         tokio::spawn(async move {
@@ -313,6 +321,7 @@ impl ChainManager {
                                 chain_id.clone(),
                                 chan.flipped(),
                                 events,
+                                completed_txs.clone(),
                             );
                         }
                         Err(e) => {
@@ -332,6 +341,7 @@ fn send_packet_aggregate_handler_task(
     chain_id: ChainId,
     channel: Channel,
     send_packet_events: Vec<IbcEventWithHeight>,
+    completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>
 ) {
     tokio::spawn(async move {
         let height = send_packet_events[0].height;
@@ -344,68 +354,80 @@ fn send_packet_aggregate_handler_task(
             // let packet = event.event.packet().unwrap();
         }
 
-        let target_signer = channel
-            .target_chain()
-            .account()
-            .get_signer()
-            .expect("get signer error");
-        let a_packet = channel
-            .source_chain()
-            .build_aggregate_packet(packets.clone(), target_signer, height)
-            .await;
+        let ibc_events = send_aggregate_packet_handler(&channel, packets, height).await;
 
-        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-        match a_packet {
-            Ok(p) => {
-                // println!("AggregatePacket: {:?}", p);
-                let raw_p: RawAggregatePacket = p.clone().into();
-                println!("RawAggregatePacket: {:?}", raw_p);
-                println!();
+        match ibc_events {
+            Ok(mut events) => {
                 println!(
-                    "AggregatePacket: packets count({})-subproof count({})",
-                    p.packets.len(),
-                    p.proof.len()
+                    "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
+                    chain_id, events
                 );
+
+                completed_txs.write().await.append(&mut events);
             }
-            Err(e) => eprintln!("{}", e),
+            Err(e) => {
+                eprintln!("send packet handler error: {:?}", e);
+            }
         }
-
-        // println!("AggregatePacket: {:?}", a_packet);
-        // let packets_proofs_map = channel
-        //         .source_chain()
-        //         .query_packets_merkle_proof_infos(packets.clone(), &height)
-        //         .await
-        //         .expect("query packets merkle proof error!");
-
-        //     println!("{:?}", packets_proofs_map);
-        //     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-
-        // let ibc_events = send_packet_handler(&channel, &packet, height).await;
-        // match ibc_events {
-        //     Ok(events) => {
-        //         println!(
-        //             "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
-        //             chain_id, events
-        //         );
-        //     }
-        //     Err(e) => {
-        //         eprintln!("send packet handler error: {:?}", e);
-        //     }
-        // }
     });
+}
+
+async fn send_aggregate_packet_handler_test(
+    channel: &Channel,
+    packets: Vec<Packet>,
+    height: Height,
+) {
+    let target_signer = channel
+        .target_chain()
+        .account()
+        .get_signer()
+        .expect("get signer error");
+    let a_packet = channel
+        .source_chain()
+        .build_aggregate_packet(packets.clone(), target_signer, height)
+        .await;
+
+    println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+    match a_packet {
+        Ok((p, hash_count)) => {
+            // println!("AggregatePacket: {:?}", p);
+            let raw_p: RawAggregatePacket = p.clone().into();
+            println!("RawAggregatePacket: {:?}", raw_p);
+            println!();
+            println!(
+                "AggregatePacket: packets count({})-subproof count({})",
+                p.packets.len(),
+                p.proof.len(),
+            );
+            println!("Number of on-chain hash computations: {:?}", hash_count);
+            println!("Aggregate_Packet_Size: {}", std::mem::size_of_val(&raw_p));
+        }
+        Err(e) => eprintln!("{}", e),
+    }
 }
 
 async fn send_aggregate_packet_handler(
     channel: &Channel,
     packets: Vec<Packet>,
     height: Height,
-) -> Result<Vec<IbcEventWithHeight>, Error> {
+) -> Result<Vec<TxEventsWithHeightAndGasUsed>, Error> {
     let target_signer = channel.target_chain().account().get_signer()?;
 
-    let a_packet = channel
+    let (a_packet, hash_count) = channel
         .source_chain()
         .build_aggregate_packet(packets, target_signer, height)
         .await?;
+
+    let raw_p: RawAggregatePacket = a_packet.clone().into();
+    println!("RawAggregatePacket: {:?}", raw_p);
+    println!();
+    println!(
+        "AggregatePacket: packets count({})-subproof count({})",
+        raw_p.packets.len(),
+        raw_p.proof.len()
+    );
+    println!("Number of on-chain hash computations: {:?}", hash_count);
+    println!("Aggregate_Packet_Size: {}", std::mem::size_of_val(&raw_p));
 
     let msgs = vec![a_packet.to_any()];
     // tokio::time::sleep(Duration::from_secs(5)).await;
@@ -452,15 +474,23 @@ fn write_acknowlegment_aggregate_handler_task(
     });
 }
 
-fn send_packet_handler_task(chain_id: ChainId, channel: Channel, packet: Packet, height: Height) {
+fn send_packet_handler_task(
+    chain_id: ChainId,
+    channel: Channel,
+    packet: Packet,
+    height: Height,
+    completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>,
+) {
     tokio::spawn(async move {
         let ibc_events = send_packet_handler(&channel, &packet, height).await;
         match ibc_events {
-            Ok(events) => {
+            Ok(mut events) => {
                 println!(
                     "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
                     chain_id, events
                 );
+
+                completed_txs.write().await.append(&mut events);
             }
             Err(e) => {
                 eprintln!("send packet handler error: {:?}", e);
@@ -473,7 +503,7 @@ async fn send_packet_handler(
     channel: &Channel,
     packet: &Packet,
     height: Height,
-) -> Result<Vec<IbcEventWithHeight>, Error> {
+) -> Result<Vec<TxEventsWithHeightAndGasUsed>, Error> {
     let target_signer = channel.target_chain().account().get_signer()?;
 
     let msgs = channel
@@ -529,7 +559,7 @@ async fn write_acknowlegmenet_handler(
     channel: &Channel,
     write_ack: &WriteAcknowledgement,
     height: Height,
-) -> Result<Vec<IbcEventWithHeight>, Error> {
+) -> Result<Vec<TxEventsWithHeightAndGasUsed>, Error> {
     let target_signer = channel.target_chain().account().get_signer()?;
 
     let msgs = channel
@@ -687,7 +717,8 @@ pub mod chain_manager_tests {
         cm.listen_events_start();
 
         let channels = Arc::new(RwLock::new(channel_pool));
-        cm.events_handler(channels);
+        let completed_txs = Arc::new(RwLock::new(vec![]));
+        cm.events_handler(channels, completed_txs.clone());
 
         loop {}
     }
@@ -749,7 +780,8 @@ pub mod chain_manager_tests {
         // println!("000000000000");
         // cm.events_handler_test(channels);
 
-        cm.events_aggregate_send_packet_handler(channels);
+        let completed_txs = Arc::new(RwLock::new(vec![]));
+        cm.events_aggregate_send_packet_handler(channels, completed_txs.clone());
 
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;

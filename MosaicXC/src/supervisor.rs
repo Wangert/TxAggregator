@@ -17,7 +17,7 @@ use types::{
         ics04_channel::{channel::Ordering, packet::Packet, version::Version},
         ics24_host::identifier::{ChainId, ClientId, ConnectionId, PortId},
     },
-    ibc_events::IbcEventWithHeight,
+    ibc_events::{IbcEventWithHeight, TxEventsWithHeightAndGasUsed},
     light_clients::client_type::ClientType,
 };
 
@@ -28,6 +28,7 @@ pub struct Supervisor {
     channel_pool: Arc<RwLock<ChannelPool>>,
     chain_managers: HashMap<ChainId, ChainManager>,
     // rt: Arc<Runtime>,
+    completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>,
 }
 
 impl Supervisor {
@@ -36,7 +37,7 @@ impl Supervisor {
             registered_chains: RegisteredChains::new(),
             channel_pool: Arc::new(RwLock::new(ChannelPool::new())),
             chain_managers: HashMap::new(),
-            // rt: Arc::new(Runtime::new().unwrap()),
+            completed_txs: Arc::new(RwLock::new(vec![])),
         }
     }
 
@@ -47,6 +48,21 @@ impl Supervisor {
 
     pub fn query_all_chain_ids(&self) -> Vec<ChainId> {
         self.registered_chains.get_all_chain_ids()
+    }
+
+    pub async fn query_completed_txs_counts_and_total_gas(&self) -> (usize, usize) {
+        let tx_counts = self.completed_txs.read().await.len();
+        let tgas = self
+            .completed_txs
+            .read()
+            .await
+            .iter()
+            .map(|tx| tx.gas_used as usize)
+            .collect::<Vec<usize>>()
+            .iter()
+            .sum();
+
+        (tx_counts, tgas)
     }
 
     // pub fn register_chain(&mut self, chain: &CosmosChain) {
@@ -107,7 +123,7 @@ impl Supervisor {
         source_chain_id: &str,
         target_chain_id: &str,
         client_type: &str,
-    ) -> Result<Vec<IbcEventWithHeight>, Error> {
+    ) -> Result<Vec<TxEventsWithHeightAndGasUsed>, Error> {
         let ctype = if "tendermint".eq_ignore_ascii_case(client_type) {
             ClientType::Tendermint
         } else if "aggrelite".eq_ignore_ascii_case(client_type) {
@@ -229,12 +245,12 @@ impl Supervisor {
                 cm.init(url.as_str()).await;
                 cm.listen_events_start();
                 let channels = self.channel_pool.clone();
-                cm.events_aggregate_send_packet_handler(channels);
+                cm.events_aggregate_send_packet_handler(channels, self.completed_txs.clone());
             } else if "cosmosibc".eq_ignore_ascii_case(mode) {
                 cm.init(url.as_str()).await;
                 cm.listen_events_start();
                 let channels = self.channel_pool.clone();
-                cm.events_handler(channels);
+                cm.events_handler(channels, self.completed_txs.clone());
             } else {
                 println!("!!!!mode is not exist!!!!");
             }
@@ -451,7 +467,12 @@ impl Supervisor {
 
                         self.start(&mode).await;
                     }
-
+                    ("querytotalgas", sub_matches) => {
+                        let (tx_counts, tgas) = self.query_completed_txs_counts_and_total_gas().await;
+                        println!();
+                        println!("[Number of ctx]: {}",tx_counts);
+                        println!("[Total gas]: {}",tgas);
+                    }
                     _ => unreachable!(),
                 }
             }
