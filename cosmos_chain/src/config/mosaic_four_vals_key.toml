@@ -1,0 +1,5 @@
+name = "wjt"
+type = "local"
+address = "cosmos1572gdjrjunstehheghljkj7w85dnmt7rvx04pn"
+pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"AmYCMigIZHse4tTszRdHCY7i/h/zRkagWApQTozj9CJF\"}"
+mnemonic = "anxiety size age tape vapor merry patient kidney picnic arctic layer allow frozen cost breeze tissue pipe bamboo dolphin magic medal animal giraffe thank"

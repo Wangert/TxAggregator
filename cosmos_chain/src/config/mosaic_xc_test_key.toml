@@ -1,0 +1,5 @@
+name = "wjt"
+type = "local"
+address = "cosmos1adh0vshujfp8wn22qvxqjh7xe2u84c8668v6e7"
+pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"ArM90SE7i4mkbJxD3/lKRAuWHbKk1PKxEneaD717N4er\"}"
+mnemonic = "deliver cage test type shiver artefact begin logic seed police fat parade digital mask gravity silk unit filter alarm purse render mesh awful eyebrow"

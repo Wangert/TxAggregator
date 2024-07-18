@@ -257,6 +257,12 @@ define_error! {
             |_| { "empty channel version" },
         EmptyChannel
             |_| { "empty channel" },
+        EmptyClientType
+            |_| { "empty client type" },
+        ClientTypeNotExist
+            |_| { "client type not exist" },
+        ModeNotExist
+            |_| { "mode not exist" },    
 
         CryptoError
             [ TraceError<CryptoError> ]

@@ -80,6 +80,21 @@ const CROSS_CHAIN_QUERY_PACKET_EVENT: &str = "cross_chain_query";
 const DISTRIBUTION_FEE_PACKET_EVENT: &str = "distribute_fee";
 
 #[derive(Clone, Debug, Serialize)]
+pub struct TxEventsWithHeightAndGasUsed {
+    pub ibc_events: Vec<IbcEventWithHeight>,
+    pub gas_used: i64,
+}
+
+impl TxEventsWithHeightAndGasUsed {
+    pub fn new(ibc_events: Vec<IbcEventWithHeight>, gas_used: i64) -> Self {
+        Self {
+            ibc_events,
+            gas_used,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct IbcEventWithHeight {
     pub event: IbcEvent,
     pub height: Height,

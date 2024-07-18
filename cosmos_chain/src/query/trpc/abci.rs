@@ -114,14 +114,16 @@ pub async fn abci_query_consensus_state(
     .await?;
 
     let consensus_state = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
-        let consensus_state: ics07_tendermint::consensus_state::ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
-        .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
-        
+        let consensus_state: ics07_tendermint::consensus_state::ConsensusState =
+            Protobuf::<Any>::decode_vec(&abci_query.value)
+                .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
+
         ConsensusStateType::Tendermint(consensus_state)
     } else {
-        let consensus_state: aggrelite::consensus_state::ConsensusState = Protobuf::<Any>::decode_vec(&abci_query.value)
-        .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
-        
+        let consensus_state: aggrelite::consensus_state::ConsensusState =
+            Protobuf::<Any>::decode_vec(&abci_query.value)
+                .map_err(|e| Error::tendermint_protobuf_decode("consensus_state".to_string(), e))?;
+
         ConsensusStateType::Aggrelite(consensus_state)
     };
 
@@ -145,7 +147,9 @@ pub mod abci_tests {
             identifier::ClientId,
             path::{ClientStatePath, IBC_QUERY_PATH},
         },
-        light_clients::{client_type::ClientStateType, ics07_tendermint::client_state::ClientState},
+        light_clients::{
+            client_type::ClientStateType, ics07_tendermint::client_state::ClientState,
+        },
     };
 
     use crate::{

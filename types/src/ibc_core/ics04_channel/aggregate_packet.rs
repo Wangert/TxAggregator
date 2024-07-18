@@ -1,11 +1,14 @@
+use std::fmt::{Display, Error as FmtError, Formatter};
+
 use ibc_proto::Protobuf;
-use ics23::InnerOp;
+use ics23::{InnerOp, LeafOp};
+use serde::Serialize;
 
 use crate::error::TypesError;
 use crate::message::Msg;
 use crate::proto::aggregate_packet::{
-    AggregatePacket as RawAggregatePacket, InnerOp as RawInnerOp, Packet as RawPacket,
-    ProofMeta as RawProofMeta, SubProof as RawSubProof,
+    AggregatePacket as RawAggregatePacket, InnerOp as RawInnerOp, LeafOp as RawLeafOp,
+    Packet as RawPacket, ProofMeta as RawProofMeta, SubProof as RawSubProof,
 };
 
 use crate::proto::height::Height as RawHeight;
@@ -16,13 +19,14 @@ use super::packet::Packet;
 
 pub const AGGREGATE_PACKET_TYPE_URL: &str = "/ibc.core.channel.v1.MsgAggregatePacket";
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct AggregatePacket {
     pub packets: Vec<Packet>,
     pub packets_leaf_number: Vec<u64>,
     pub proof: Vec<SubProof>,
     pub signer: Signer,
     pub height: Height,
+    pub leafops: Vec<LeafOp>,
 }
 
 impl Msg for AggregatePacket {
@@ -70,11 +74,22 @@ impl From<AggregatePacket> for RawAggregatePacket {
                 .collect(),
             height: Some(height),
             packets_leaf_number: value.packets_leaf_number,
+            leafops: value
+                .leafops
+                .iter()
+                .map(|l| RawLeafOp {
+                    hash: l.hash,
+                    prehash_key: l.prehash_key,
+                    prehash_value: l.prehash_value,
+                    length: l.length,
+                    prefix: l.prefix.clone(),
+                })
+                .collect(),
         }
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct SubProof {
     pub number: u64,
     pub proof_meta_list: Vec<ProofMeta>,
@@ -93,10 +108,11 @@ impl From<SubProof> for RawSubProof {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ProofMeta {
     pub hash_value: Vec<u8>,
     pub path_inner_op: InnerOp,
+    pub real_value: Vec<u8>,
 }
 
 impl From<ProofMeta> for RawProofMeta {
@@ -109,6 +125,7 @@ impl From<ProofMeta> for RawProofMeta {
         RawProofMeta {
             path_inner_op: Some(raw_inner_op),
             hash_value: value.hash_value,
+            real_value: value.real_value,
         }
     }
 }
@@ -126,6 +143,7 @@ impl AggregatePacket {
         proof: Vec<SubProof>,
         signer: Signer,
         height: Height,
+        leafops: Vec<LeafOp>,
     ) -> Self {
         Self {
             packets,
@@ -133,6 +151,7 @@ impl AggregatePacket {
             proof,
             signer,
             height,
+            leafops,
         }
     }
 }
@@ -147,10 +166,11 @@ impl SubProof {
 }
 
 impl ProofMeta {
-    pub fn new(hash_value: Vec<u8>, path_inner_op: InnerOp) -> Self {
+    pub fn new(hash_value: Vec<u8>, path_inner_op: InnerOp, real_value: Vec<u8>) -> Self {
         Self {
             hash_value,
             path_inner_op,
+            real_value,
         }
     }
 }
@@ -161,5 +181,12 @@ pub fn check_inner_op_is_contain_bytes(mut inner_op: InnerOp, value: Vec<u8>) ->
         inner_op.prefix.ends_with(&value)
     } else {
         inner_op.suffix.ends_with(&value)
+    }
+}
+
+
+impl Display for RawAggregatePacket {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        write!(f, "packets({}), subproof({}), height({:?}) ", self.packets.len(), self.proof.len(), self.height)
     }
 }

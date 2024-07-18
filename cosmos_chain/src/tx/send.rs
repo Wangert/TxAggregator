@@ -141,21 +141,6 @@ pub async fn wait_for_tx_block_commit(
         loop {
             let tx_response_result = tx(trpc_client, tx_sync_response.hash, false).await;
 
-            // let tx_response_result = tx_search(
-            //     trpc_client,
-            //     Query::eq("tx.hash", tx_sync_response.hash.to_string()),
-            //     false,
-            //     1,
-            //     1,
-            //     Order::Ascending,
-            // )
-            // .await?;
-
-            // let tx_response = tx_response_result
-            // .txs
-            // .into_iter()
-            // .next();
-
             println!(">>>>>>>>>> waiting for commit -> tx_hash: {:?}", tx_sync_response.hash);
             // println!("[wait_for_tx_block_commit]: tx_response_result=={:?}", tx_response_result);
             // println!("tx_response_result: {:?}", tx_response);
@@ -205,6 +190,7 @@ pub async fn wait_for_tx_block_commit(
                     response: tx_sync_response.clone(),
                     events,
                     status: TxStatus::ReceivedResponse,
+                    gas_used: tx_response.tx_result.gas_used,
                 });
             }
 

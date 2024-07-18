@@ -20,7 +20,7 @@ use types::{
             ClientId, ConnectionId, AGGRELITE_CLIENT_PREFIX, TENDERMINT_CLIENT_PREFIX,
         },
     },
-    ibc_events::IbcEvent,
+    ibc_events::{IbcEvent, IbcEventWithHeight},
     light_clients::{client_type::ClientStateType, header_type::AdjustHeadersType},
     message::Msg,
     timestamp::ZERO_DURATION,
@@ -156,61 +156,63 @@ impl Connection {
             .await?;
 
         let (target_header, support_headers) = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
-            self.target_chain().adjust_headers(
-                trusted_height,
-                verified_blocks.target,
-                verified_blocks.supporting,
-                TENDERMINT_CLIENT_PREFIX,
-            )
-            .await
-            .map(|adjust_headers| match adjust_headers {
-                AdjustHeadersType::Tendermint(headers) => {
-                    let header = AnyHeader::from(headers.target_header);
-                    let support: Vec<AnyHeader> = headers
-                        .supporting_headers
-                        .into_iter()
-                        .map(|h| AnyHeader::from(h))
-                        .collect();
-                    (header, support)
-                }
-                AdjustHeadersType::Aggrelite(headers) => {
-                    let header = AnyHeader::from(headers.target_header);
-                    let support: Vec<AnyHeader> = headers
-                        .supporting_headers
-                        .into_iter()
-                        .map(|h| AnyHeader::from(h))
-                        .collect();
-                    (header, support)
-                }
-            })?
+            self.target_chain()
+                .adjust_headers(
+                    trusted_height,
+                    verified_blocks.target,
+                    verified_blocks.supporting,
+                    TENDERMINT_CLIENT_PREFIX,
+                )
+                .await
+                .map(|adjust_headers| match adjust_headers {
+                    AdjustHeadersType::Tendermint(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                    AdjustHeadersType::Aggrelite(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                })?
         } else {
-            self.target_chain().adjust_headers(
-                trusted_height,
-                verified_blocks.target,
-                verified_blocks.supporting,
-                AGGRELITE_CLIENT_PREFIX,
-            )
-            .await
-            .map(|adjust_headers| match adjust_headers {
-                AdjustHeadersType::Tendermint(headers) => {
-                    let header = AnyHeader::from(headers.target_header);
-                    let support: Vec<AnyHeader> = headers
-                        .supporting_headers
-                        .into_iter()
-                        .map(|h| AnyHeader::from(h))
-                        .collect();
-                    (header, support)
-                }
-                AdjustHeadersType::Aggrelite(headers) => {
-                    let header = AnyHeader::from(headers.target_header);
-                    let support: Vec<AnyHeader> = headers
-                        .supporting_headers
-                        .into_iter()
-                        .map(|h| AnyHeader::from(h))
-                        .collect();
-                    (header, support)
-                }
-            })?
+            self.target_chain()
+                .adjust_headers(
+                    trusted_height,
+                    verified_blocks.target,
+                    verified_blocks.supporting,
+                    AGGRELITE_CLIENT_PREFIX,
+                )
+                .await
+                .map(|adjust_headers| match adjust_headers {
+                    AdjustHeadersType::Tendermint(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                    AdjustHeadersType::Aggrelite(headers) => {
+                        let header = AnyHeader::from(headers.target_header);
+                        let support: Vec<AnyHeader> = headers
+                            .supporting_headers
+                            .into_iter()
+                            .map(|h| AnyHeader::from(h))
+                            .collect();
+                        (header, support)
+                    }
+                })?
         };
         // let (target_header, support_headers) = self
         //     .target_chain()
@@ -657,7 +659,11 @@ impl Connection {
         let events = self
             .target_chain()
             .send_messages_and_wait_commit(msgs)
-            .await?;
+            .await?
+            .iter()
+            .map(|tx| tx.ibc_events.clone())
+            .flatten()
+            .collect::<Vec<IbcEventWithHeight>>();
 
         // println!("ibc events: {:?}", events);
         // Find the relevant event for connection init
@@ -797,7 +803,11 @@ impl Connection {
         let events = self
             .target_chain()
             .send_messages_and_wait_commit(con_open_try_msgs)
-            .await?;
+            .await?
+            .iter()
+            .map(|tx| tx.ibc_events.clone())
+            .flatten()
+            .collect::<Vec<IbcEventWithHeight>>();
 
         // Find the relevant event for connection try transaction
         let result = events
@@ -903,7 +913,11 @@ impl Connection {
         let events = self
             .target_chain()
             .send_messages_and_wait_commit(conn_open_ack_msgs)
-            .await?;
+            .await?
+            .iter()
+            .map(|tx| tx.ibc_events.clone())
+            .flatten()
+            .collect::<Vec<IbcEventWithHeight>>();
 
         // Find the relevant event for connection ack
         let result = events
@@ -986,7 +1000,11 @@ impl Connection {
         let events = self
             .target_chain()
             .send_messages_and_wait_commit(conn_open_confirm_msgs)
-            .await?;
+            .await?
+            .iter()
+            .map(|tx| tx.ibc_events.clone())
+            .flatten()
+            .collect::<Vec<IbcEventWithHeight>>();
 
         // Find the relevant event for connection confirm
         let result = events
