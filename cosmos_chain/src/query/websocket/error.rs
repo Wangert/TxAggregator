@@ -27,7 +27,10 @@ impl WsError {
             ErrorDetail::Server(detail) if detail.reason.contains("subscription was cancelled") => {
                 Self::subscription_cancelled(e)
             }
-            _ => Self::collect_events_error(),
+            _ => {
+                eprintln!("ws_detail: {}", e.detail());
+                Self::collect_events_error()
+            },
         }
     }
 }

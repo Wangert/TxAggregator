@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Display, sync::Arc};
+use std::{borrow::BorrowMut, collections::HashMap, path::Display, sync::Arc};
 
 use tokio::sync::RwLock;
 use types::{
@@ -10,16 +10,20 @@ use crate::channel_pool::channel_key_by_packet;
 
 type EventType = u16;
 type ChannelKey = String;
-type EventClassType = (EventType, Height, ChannelKey);
+pub type EventClassType = (EventType, Height, ChannelKey);
 
 pub const SEND_PACKET_EVENT: u16 = 1;
 pub const WRITE_ACK_EVENT: u16 = 2;
+
+pub type CTXGroup = Vec<IbcEventWithHeight>;
 
 #[derive(Debug, Clone)]
 pub struct EventPool {
     ibc_events: Vec<IbcEventWithHeight>,
     ibc_events_class: HashMap<EventClassType, Vec<IbcEventWithHeight>>,
+    ctx_pending_groups: HashMap<EventClassType, Vec<CTXGroup>>,
     next_heights: HashMap<(EventType, ChannelKey), Height>,
+    pub group_size: u64,
 }
 
 impl EventPool {
@@ -27,8 +31,53 @@ impl EventPool {
         EventPool {
             ibc_events: Vec::new(),
             ibc_events_class: HashMap::new(),
+            ctx_pending_groups: HashMap::new(),
             next_heights: HashMap::new(),
+            group_size: 400,
         }
+    }
+
+    pub fn get_ibc_events_class(&self) -> HashMap<EventClassType, Vec<IbcEventWithHeight>> {
+        self.ibc_events_class.clone()
+    }
+
+    pub fn get_ibc_events_class_mut(&mut self) -> &mut HashMap<EventClassType, Vec<IbcEventWithHeight>> {
+        self.ibc_events_class.borrow_mut()
+    }
+
+    pub fn clear_ibc_events_class(&mut self) {
+        self.ibc_events_class.clear();
+    }
+
+    pub fn update_ctx_pending_groups(
+        &mut self,
+        event_class_type: &EventClassType,
+        mut groups: Vec<CTXGroup>,
+    ) {
+        if let Some(gs) = self.ctx_pending_groups.get_mut(event_class_type) {
+            gs.append(&mut groups);
+        } else {
+            self.ctx_pending_groups
+                .insert(event_class_type.clone(), groups);
+
+            let k = (event_class_type.0, event_class_type.2.clone());
+            let event_height = event_class_type.1;
+            if let Some(h) = self.next_heights.get(&k) {
+                if event_height < *h {
+                    self.next_heights.insert(k, event_height);
+                }
+            } else {
+                self.next_heights.insert(k, event_height);
+            }
+        }
+
+        println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        // println!("pending_groups:{:?}", self.ctx_pending_groups.clone());
+        println!("next_heights:{:?}", self.next_heights.clone());
+    }
+
+    pub fn get_ctx_pending_groups_mut(&mut self) -> &mut HashMap<EventClassType, Vec<CTXGroup>> {
+        &mut self.ctx_pending_groups
     }
 
     pub fn push_events(&mut self, mut ibc_events: Vec<IbcEventWithHeight>) {
@@ -88,12 +137,19 @@ impl EventPool {
                 );
             }
 
-            if let Some(h) = self.next_heights.get(&(event_type, channel_key.clone())) {
-                if event_height < *h {
-                    self.next_heights
-                        .insert((event_type, channel_key), event_height);
-                }
-            }
+            // if let Some(h) = self.next_heights.get(&(event_type, channel_key.clone())) {
+            //     if event_height < *h {
+            //         self.next_heights
+            //             .insert((event_type, channel_key), event_height);
+            //     }
+            // } else {
+            //     self.next_heights
+            //         .insert((event_type, channel_key.clone()), event_height);
+            // }
+
+            // println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            // println!("ibc_events_class:{:?}", self.ibc_events_class.clone());
+            // println!("next_heights:{:?}", self.next_heights.clone());
         });
     }
 
@@ -119,19 +175,57 @@ impl EventPool {
     ) -> Vec<IbcEventWithHeight> {
         let mut next_events = vec![];
         if let Some(h) = self.next_heights.get(&(event_type, channel_key.clone())) {
-            if let Some(events) = self
-                .ibc_events_class
-                .get_mut(&(event_type, *h, channel_key))
+            println!("next_height_get=============");
+            if let Some(events) =
+                self.ibc_events_class
+                    .get_mut(&(event_type, *h, channel_key.clone()))
             {
+                println!("LEN:{:?}", events.len());
                 if events.len() < num {
                     next_events = events.drain(..).collect();
+                    println!("next_height_update=============");
+                    self.next_heights
+                        .insert((event_type, channel_key.clone()), *h + 1);
                 } else {
                     next_events = events.drain(..num).collect();
                 }
+            } else {
+                // println!("NOTNOT:{:?}", *h);
+                self.next_heights
+                    .insert((event_type, channel_key.clone()), *h + 1);
             }
         }
 
         next_events
+    }
+
+    pub fn next_pending_group(&mut self, event_type: EventType, channel_key: String) -> CTXGroup {
+        let mut next_group = vec![];
+        if let Some(h) = self.next_heights.get(&(event_type, channel_key.clone())) {
+            println!("next_height_get=============");
+            if let Some(groups) =
+                self.ctx_pending_groups
+                    .get_mut(&(event_type, *h, channel_key.clone()))
+            {
+                println!("LEN:{:?}", groups.len());
+                let groups_num = groups.len();
+                if 0 < groups_num && groups_num <= 1 {
+                    next_group = groups.first().unwrap().clone();
+                    self.ctx_pending_groups.remove(&(event_type, *h, channel_key.clone()));
+                    self.next_heights
+                        .insert((event_type, channel_key.clone()), *h + 1);
+                } else if groups_num > 1 {
+                    next_group = groups.first().unwrap().clone();
+                    groups.remove(0);
+                }
+            } else {
+                // println!("NOTNOT:{:?}", *h);
+                self.next_heights
+                    .insert((event_type, channel_key.clone()), *h + 1);
+            }
+        }
+
+        next_group
     }
 }
 

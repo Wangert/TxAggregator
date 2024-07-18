@@ -18,6 +18,7 @@ use types::{
         ics24_host::identifier::{ChainId, ClientId, ConnectionId, PortId},
     },
     ibc_events::IbcEventWithHeight,
+    light_clients::client_type::ClientType,
 };
 
 use crate::cmd_matches::before_cmd_match;
@@ -105,7 +106,16 @@ impl Supervisor {
         &self,
         source_chain_id: &str,
         target_chain_id: &str,
+        client_type: &str,
     ) -> Result<Vec<IbcEventWithHeight>, Error> {
+        let ctype = if "tendermint".eq_ignore_ascii_case(client_type) {
+            ClientType::Tendermint
+        } else if "aggrelite".eq_ignore_ascii_case(client_type) {
+            ClientType::Aggrelite
+        } else {
+            return Err(Error::client_type_not_exist());
+        };
+
         let cosmos_chain_a = self
             .search_chain_by_id(source_chain_id)
             .ok_or_else(Error::empty_chain_id)?;
@@ -114,8 +124,12 @@ impl Supervisor {
             .ok_or_else(Error::empty_chain_id)?;
 
         let client_settings = cosmos_chain_a.client_settings(&cosmos_chain_b.config);
-        let client_state = cosmos_chain_b.build_client_state(&client_settings, types::light_clients::client_type::ClientType::Tendermint).await?;
-        let consensus_state = cosmos_chain_b.build_consensus_state(client_state.clone()).await?;
+        let client_state = cosmos_chain_b
+            .build_client_state(&client_settings, ctype)
+            .await?;
+        let consensus_state = cosmos_chain_b
+            .build_consensus_state(client_state.clone())
+            .await?;
 
         let msgs = cosmos_chain_a
             .build_create_client_msg(client_state, consensus_state)
@@ -200,7 +214,7 @@ impl Supervisor {
         Ok(channel)
     }
 
-    async fn start(&mut self) {
+    async fn start(&mut self, mode: &str) {
         let chains = self.registered_chains.clone();
         for (_, cm) in &mut self.chain_managers {
             let chain = chains.get_chain_by_id(&cm.chain_id());
@@ -211,11 +225,19 @@ impl Supervisor {
                 url = u.clone();
             }
 
-            cm.init(url.as_str()).await;
-            cm.listen_events_start();
-
-            let channels = self.channel_pool.clone();
-            cm.events_handler(channels);
+            if "mosaicxc".eq_ignore_ascii_case(mode) {
+                cm.init(url.as_str()).await;
+                cm.listen_events_start();
+                let channels = self.channel_pool.clone();
+                cm.events_aggregate_send_packet_handler(channels);
+            } else if "cosmosibc".eq_ignore_ascii_case(mode) {
+                cm.init(url.as_str()).await;
+                cm.listen_events_start();
+                let channels = self.channel_pool.clone();
+                cm.events_handler(channels);
+            } else {
+                println!("!!!!mode is not exist!!!!");
+            }
         }
     }
 
@@ -256,6 +278,10 @@ impl Supervisor {
                         let target_chain = sub_matches
                             .get_one::<String>("target")
                             .ok_or_else(Error::empty_chain_id)?;
+                        let client_type = sub_matches
+                            .get_one::<String>("clienttype")
+                            .ok_or_else(Error::empty_client_type)?;
+
                         println!();
                         println!("[Client Create]:");
                         println!(
@@ -264,7 +290,9 @@ impl Supervisor {
                         );
 
                         // let rt = self.rt.clone();
-                        let events = self.create_client(source_chain, target_chain).await?;
+                        let events = self
+                            .create_client(source_chain, target_chain, client_type)
+                            .await?;
                         println!("*********************************************");
                         println!("Client create successful!");
                         println!("[Events]:");
@@ -409,6 +437,9 @@ impl Supervisor {
                 let chain_command = sub_matches.subcommand().unwrap();
                 match chain_command {
                     ("start", sub_matches) => {
+                        let mode = sub_matches
+                            .get_one::<String>("mode")
+                            .ok_or_else(Error::mode_not_exist)?;
                         // let source_chain = sub_matches.get_one::<String>("source");
                         // let target_chain = sub_matches.get_one::<String>("target");
                         println!();
@@ -418,7 +449,7 @@ impl Supervisor {
                         //     source_chain, target_chain
                         // );
 
-                        self.start().await;
+                        self.start(&mode).await;
                     }
 
                     _ => unreachable!(),

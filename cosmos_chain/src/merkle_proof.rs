@@ -1,7 +1,12 @@
+use std::collections::HashMap;
+
 use futures::future::InspectErr;
 use ics23::{InnerOp, LeafOp};
 use prost::Message;
-use utils::{crypto, encode::base64::{encode_to_base64_string, u8_to_base64_string}};
+use utils::{
+    crypto,
+    encode::base64::{encode_to_base64_string, u8_to_base64_string},
+};
 
 use crate::error::Error;
 
@@ -23,7 +28,11 @@ pub fn calculate_next_step_hash(inner_op: &InnerOp, mut child: Vec<u8>) -> Resul
     do_hash_op(inner_op.hash, data)
 }
 
-pub fn calculate_leaf_hash(leaf_op: LeafOp, key: Vec<u8>, value: Vec<u8>) -> Result<Vec<u8>, Error> {
+pub fn calculate_leaf_hash(
+    leaf_op: LeafOp,
+    key: Vec<u8>,
+    value: Vec<u8>,
+) -> Result<Vec<u8>, Error> {
     if key.len() == 0 || value.len() == 0 {
         return Err(Error::leaf_key_or_value_is_empty());
     }
@@ -43,7 +52,7 @@ pub fn prepare_leaf_hash(hash_op: i32, length_op: i32, data: Vec<u8>) -> Result<
     let ldata = do_length_op(length_op, hdata)?;
 
     Ok(ldata)
-} 
+}
 
 pub fn do_length_op(length_op: i32, mut data: Vec<u8>) -> Result<Vec<u8>, Error> {
     match length_op {
@@ -52,8 +61,8 @@ pub fn do_length_op(length_op: i32, mut data: Vec<u8>) -> Result<Vec<u8>, Error>
             let mut res = encode_varint_proto(data.len());
             res.append(data.as_mut());
             Ok(res)
-        },
-        _ => Err(Error::length_op_not_exist())
+        }
+        _ => Err(Error::length_op_not_exist()),
     }
 }
 
@@ -87,7 +96,7 @@ pub fn inner_op_to_base64_string(inner_op: &InnerOp) -> String {
 }
 
 pub fn uint64_to_big_endian(v: u64) -> Vec<u8> {
-    let mut b: [u8;8] = [0;8];
+    let mut b: [u8; 8] = [0; 8];
     b[0] = (v >> 56) as u8;
     b[1] = (v >> 48) as u8;
     b[2] = (v >> 40) as u8;
@@ -100,20 +109,42 @@ pub fn uint64_to_big_endian(v: u64) -> Vec<u8> {
     b.to_vec()
 }
 
+#[derive(Debug)]
 pub struct MerkleProofInfo {
     pub leaf_key: Vec<u8>,
     pub leaf_value: Vec<u8>,
     pub leaf_op: LeafOp,
     pub full_path: Vec<InnerOp>,
+    pub inner_key_value: HashMap<u64, (LeafOp, Vec<u8>, Vec<u8>)>,
 }
 
 #[cfg(test)]
 pub mod merkle_proof_tests {
+    use bitcoin::bech32::ToBase32;
     use utils::crypto::do_hash;
 
     use crate::merkle_proof::{do_hash_op, do_length_op, HASHOP_SHA256, LENGTHOP_VAR_PROTO};
 
     use super::uint64_to_big_endian;
+
+    #[test]
+    pub fn do_next_hash_works() {
+        let mut data: Vec<u8> = vec![1];
+        let mut child = vec![
+            148, 164, 225, 89, 22, 247, 255, 62, 43, 144, 40, 118, 37, 166, 44, 75, 5, 231, 220, 68, 116, 213, 173, 174, 146, 169, 59, 171, 215, 198, 157, 186
+        ];
+        let mut suffix = vec![
+            2, 87, 213, 178, 16, 124, 45, 205, 47, 83, 210, 127, 33, 78, 11, 113, 211, 93, 221, 40, 193, 34, 180, 34, 107, 36, 225, 25, 122, 179, 25, 166
+        ];
+        data.append(&mut child);
+        data.append(&mut suffix);
+
+        let hash_result = do_hash_op(HASHOP_SHA256, data);
+        match hash_result {
+            Ok(h) => println!("Result:{:?}", h),
+            Err(e) => eprintln!("{}", e),
+        }
+    }
 
     #[test]
     pub fn do_hash_op_works() {
@@ -159,5 +190,4 @@ pub mod merkle_proof_tests {
         let re_2 = (3456 as u64).to_be_bytes();
         println!("{:?}", re_2.to_vec());
     }
-
 }

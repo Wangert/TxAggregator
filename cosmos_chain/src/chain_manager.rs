@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, sync::Arc, time::Duration};
+use std::{borrow::BorrowMut, collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Chain;
 use tendermint_rpc::{event, SubscriptionClient};
@@ -8,17 +8,24 @@ use types::{
     ibc_core::{
         ics02_client::height::Height,
         ics04_channel::{
+            aggregate_packet::AggregatePacket,
             events::{self as ChannelEvents, SendPacket, WriteAcknowledgement},
             packet::Packet,
         },
         ics24_host::identifier::ChainId,
     },
     ibc_events::{IbcEvent, IbcEventWithHeight},
+    message::Msg,
 };
+
+use types::proto::aggregate_packet::AggregatePacket as RawAggregatePacket;
 
 //wjt
 use crate::{
-    channel::Channel, channel_pool::ChannelPool, error::Error, event_pool::{EventPool, SEND_PACKET_EVENT, WRITE_ACK_EVENT},
+    channel::Channel,
+    channel_pool::ChannelPool,
+    error::Error,
+    event_pool::{CTXGroup, EventClassType, EventPool, SEND_PACKET_EVENT, WRITE_ACK_EVENT},
     query::websocket::subscribe::EventSubscriptions,
 };
 // use crate::query::websocket::subscribe::{EventPool, EventSubscriptions};
@@ -58,6 +65,48 @@ impl ChainManager {
 
         self.event_subscriptions
             .listen_events(self.chain_id(), event_pool_clone);
+
+        self.grouping_start();
+    }
+
+    pub fn grouping_start(&mut self) {
+        let ep = self.event_pool.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let group_size = ep.read().await.group_size as usize;
+                let mut current_ctxes = ep.read().await.get_ibc_events_class();
+                // ep.write().await.clear_ibc_events_class();
+
+                for (c, events) in current_ctxes.iter_mut() {
+                    let mut groups: Vec<CTXGroup> = vec![];
+                    loop {
+                        let mut new_group = vec![];
+                        if events.len() > group_size {
+                            new_group = events
+                                .drain(..group_size)
+                                .collect::<CTXGroup>();
+                            groups.push(new_group.clone());
+                            // println!("200:{:?}", new_group);
+                        } else {
+                            new_group = events.drain(..).collect::<CTXGroup>();
+                            groups.push(new_group.clone());
+
+                            ep.write().await.get_ibc_events_class_mut().remove(c);
+                            // println!("小于200:{:?}", new_group);
+                            break;
+                        }
+                        
+                    }
+
+                    println!("groups_num: {}", groups.len());
+
+                    ep.write().await.update_ctx_pending_groups(c, groups);
+                }
+
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            };
+        });
     }
 
     pub async fn read(&self) {
@@ -135,25 +184,102 @@ impl ChainManager {
         });
     }
 
+    pub fn events_handler_test(&mut self, channels: Arc<RwLock<ChannelPool>>) {
+        let ep = self.event_pool.clone();
+        let chain_id = self.chain_id();
+        tokio::spawn(async move {
+            loop {
+                let event = ep.write().await.read_latest_event();
+
+                if let Some(event_with_height) = event {
+                    match &event_with_height.event {
+                        IbcEvent::SendPacket(send_packet) => {
+                            let channel_result =
+                                search_channel(channels.clone(), &send_packet.packet).await;
+                            match channel_result {
+                                Ok(chan) => {
+                                    println!("+++++++++++++++++++++++++++++++++");
+                                    println!("Event:{:?}", &event_with_height);
+                                    let packet = &send_packet.packet.clone();
+                                    let packets_proofs_map = chan
+                                        .source_chain()
+                                        .query_packets_merkle_proof_infos(
+                                            vec![packet.clone()],
+                                            &event_with_height.height,
+                                        )
+                                        .await
+                                        .expect("query packets merkle proof error!");
+
+                                    println!("{:?}", packets_proofs_map);
+                                    println!("+++++++++++++++++++++++++++++++++");
+                                }
+                                Err(e) => {
+                                    eprintln!("channel read error: {:?}", e);
+                                    continue;
+                                }
+                            }
+                        }
+                        IbcEvent::WriteAcknowledgement(write_ack) => {
+                            // let channel_result =
+                            //     search_channel(channels.clone(), &write_ack.packet).await;
+                            // match channel_result {
+                            //     Ok(chan) => {
+                            //         write_acknowlegment_handler_task(
+                            //             chain_id.clone(),
+                            //             chan.flipped(),
+                            //             write_ack,
+                            //             event_with_height.height,
+                            //         );
+                            //     }
+                            //     Err(e) => {
+                            //         eprintln!("channel read error: {:?}", e);
+                            //         continue;
+                            //     }
+                            // }
+                        }
+                        IbcEvent::AcknowledgePacket(ack_packet) => {
+                            println!("[[CHAIN:{:?}]] Ack Packet: {:?}", chain_id, ack_packet);
+                        }
+                        _ => {
+                            continue;
+                        }
+                    };
+                } else {
+                    // println!("no event");
+                };
+
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        });
+    }
+
     pub fn events_aggregate_send_packet_handler(&mut self, channels: Arc<RwLock<ChannelPool>>) {
         let ep = self.event_pool.clone();
         let chain_id = self.chain_id();
         tokio::spawn(async move {
             loop {
-
+                // println!("LOOPLOOP!");
                 let channel_keys = channels.read().await.all_channel_keys();
                 for k in channel_keys {
-                    let events = ep.write().await.read_next_events(SEND_PACKET_EVENT, 100, k.clone());
+                    // let events = ep
+                    //     .write()
+                    //     .await
+                    //     .read_next_events(SEND_PACKET_EVENT, 200, k.clone());
+                    let events = ep
+                        .write()
+                        .await
+                        .next_pending_group(SEND_PACKET_EVENT, k.clone());
+
+                    println!("Events Handler Number: {:?}", events.len());
 
                     let channel_result = search_channel_by_key(channels.clone(), k.as_str()).await;
 
+                    if events.len() == 0 {
+                        continue;
+                    }
                     match channel_result {
                         Ok(chan) => {
-                            send_packet_aggregate_handler_task(
-                                chain_id.clone(),
-                                chan,
-                                events,
-                            );
+                            send_packet_aggregate_handler_task(chain_id.clone(), chan, events);
                         }
                         Err(e) => {
                             eprintln!("channel read error: {:?}", e);
@@ -162,7 +288,7 @@ impl ChainManager {
                     }
                 }
 
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         });
     }
@@ -172,10 +298,12 @@ impl ChainManager {
         let chain_id = self.chain_id();
         tokio::spawn(async move {
             loop {
-
                 let channel_keys = channels.read().await.all_channel_keys();
                 for k in channel_keys {
-                    let events = ep.write().await.read_next_events(WRITE_ACK_EVENT, 100, k.clone());
+                    let events = ep
+                        .write()
+                        .await
+                        .read_next_events(WRITE_ACK_EVENT, 100, k.clone());
 
                     let channel_result = search_channel_by_key(channels.clone(), k.as_str()).await;
 
@@ -198,14 +326,60 @@ impl ChainManager {
             }
         });
     }
-
-
 }
 
-fn send_packet_aggregate_handler_task(chain_id: ChainId, channel: Channel, send_packet_events: Vec<IbcEventWithHeight>) {
+fn send_packet_aggregate_handler_task(
+    chain_id: ChainId,
+    channel: Channel,
+    send_packet_events: Vec<IbcEventWithHeight>,
+) {
     tokio::spawn(async move {
+        let height = send_packet_events[0].height;
 
-        todo!()
+        let mut packets = vec![];
+        for event in send_packet_events {
+            // println!("+++++++++++++++++++++++++++++++++");
+            // println!("Event:{:?}", event);
+            packets.push(event.event.packet().unwrap().clone());
+            // let packet = event.event.packet().unwrap();
+        }
+
+        let target_signer = channel
+            .target_chain()
+            .account()
+            .get_signer()
+            .expect("get signer error");
+        let a_packet = channel
+            .source_chain()
+            .build_aggregate_packet(packets.clone(), target_signer, height)
+            .await;
+
+        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+        match a_packet {
+            Ok(p) => {
+                // println!("AggregatePacket: {:?}", p);
+                let raw_p: RawAggregatePacket = p.clone().into();
+                println!("RawAggregatePacket: {:?}", raw_p);
+                println!();
+                println!(
+                    "AggregatePacket: packets count({})-subproof count({})",
+                    p.packets.len(),
+                    p.proof.len()
+                );
+            }
+            Err(e) => eprintln!("{}", e),
+        }
+
+        // println!("AggregatePacket: {:?}", a_packet);
+        // let packets_proofs_map = channel
+        //         .source_chain()
+        //         .query_packets_merkle_proof_infos(packets.clone(), &height)
+        //         .await
+        //         .expect("query packets merkle proof error!");
+
+        //     println!("{:?}", packets_proofs_map);
+        //     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+
         // let ibc_events = send_packet_handler(&channel, &packet, height).await;
         // match ibc_events {
         //     Ok(events) => {
@@ -221,9 +395,47 @@ fn send_packet_aggregate_handler_task(chain_id: ChainId, channel: Channel, send_
     });
 }
 
-fn write_acknowlegment_aggregate_handler_task(chain_id: ChainId, channel: Channel, send_packet_events: Vec<IbcEventWithHeight>) {
-    tokio::spawn(async move {
+async fn send_aggregate_packet_handler(
+    channel: &Channel,
+    packets: Vec<Packet>,
+    height: Height,
+) -> Result<Vec<IbcEventWithHeight>, Error> {
+    let target_signer = channel.target_chain().account().get_signer()?;
 
+    let a_packet = channel
+        .source_chain()
+        .build_aggregate_packet(packets, target_signer, height)
+        .await?;
+
+    let msgs = vec![a_packet.to_any()];
+    // tokio::time::sleep(Duration::from_secs(5)).await;
+    let query_height = channel.source_chain().query_latest_height().await.unwrap();
+    // Build message(s) to update client on target chain
+    let target_update_client_msgs = channel
+        .build_update_client_on_target_chain(query_height + 1)
+        .await?;
+
+    let update_event = channel
+        .target_chain()
+        .send_messages_and_wait_commit(target_update_client_msgs)
+        .await?;
+
+    // println!("Update Event: {:?}", update_event);
+
+    let events = channel
+        .target_chain()
+        .send_messages_and_wait_commit(msgs)
+        .await?;
+
+    Ok(events)
+}
+
+fn write_acknowlegment_aggregate_handler_task(
+    chain_id: ChainId,
+    channel: Channel,
+    send_packet_events: Vec<IbcEventWithHeight>,
+) {
+    tokio::spawn(async move {
         todo!()
         // let ibc_events = send_packet_handler(&channel, &packet, height).await;
         // match ibc_events {
@@ -361,7 +573,10 @@ async fn search_channel(
     }
 }
 
-async fn search_channel_by_key(channels: Arc<RwLock<ChannelPool>>, channel_key: &str) -> Result<Channel, Error> {
+async fn search_channel_by_key(
+    channels: Arc<RwLock<ChannelPool>>,
+    channel_key: &str,
+) -> Result<Channel, Error> {
     let channel_read = channels.read().await;
     let channel = channel_read.query_channel_by_key(channel_key);
 
@@ -480,28 +695,28 @@ pub mod chain_manager_tests {
     #[tokio::test]
     pub async fn events_handler_b_works() {
         let a_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
         let b_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
 
         let channel_side_a = ChannelSide::new(
             cosmos_chain_a,
-            ClientId::from_str("07-tendermint-22").unwrap(),
-            ConnectionId::from_str("connection-22").unwrap(),
+            ClientId::from_str("05-aggrelite-0").unwrap(),
+            ConnectionId::from_str("connection-1").unwrap(),
             PortId::from_str("blog").unwrap(),
-            Some(ChannelId::new(25)),
+            Some(ChannelId::new(0)),
             Some(Version("blog-1".to_string())),
         );
 
         let channel_side_b = ChannelSide::new(
             cosmos_chain_b,
-            ClientId::from_str("07-tendermint-13").unwrap(),
-            ConnectionId::from_str("connection-18").unwrap(),
+            ClientId::from_str("05-aggrelite-0").unwrap(),
+            ConnectionId::from_str("connection-0").unwrap(),
             PortId::from_str("blog").unwrap(),
-            Some(ChannelId::new(22)),
+            Some(ChannelId::new(1)),
             Some(Version("blog-1".to_string())),
         );
 
@@ -526,14 +741,19 @@ pub mod chain_manager_tests {
 
         _ = cm
             .event_subscriptions
-            .init_subscriptions("ws://127.0.0.1:26659/websocket")
+            .init_subscriptions("ws://127.0.0.1:26657/websocket")
             .await;
         cm.listen_events_start();
 
         let channels = Arc::new(RwLock::new(channel_pool));
-        cm.events_handler(channels);
+        // println!("000000000000");
+        // cm.events_handler_test(channels);
 
-        loop {}
+        cm.events_aggregate_send_packet_handler(channels);
+
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
     }
 
     // #[tokio::test]

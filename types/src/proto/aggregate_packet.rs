@@ -43,11 +43,27 @@ pub struct InnerOp {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LeafOp {
+    #[prost(enumeration = "HashOp", tag = "1")]
+    pub hash: i32,
+    #[prost(enumeration = "HashOp", tag = "2")]
+    pub prehash_key: i32,
+    #[prost(enumeration = "HashOp", tag = "3")]
+    pub prehash_value: i32,
+    #[prost(enumeration = "LengthOp", tag = "4")]
+    pub length: i32,
+    #[prost(bytes = "vec", tag = "5")]
+    pub prefix: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProofMeta {
-    #[prost(message, optional, tag = "2")]
-    pub path_inner_op: ::core::option::Option<InnerOp>,
     #[prost(bytes = "vec", tag = "1")]
     pub hash_value: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "2")]
+    pub path_inner_op: ::core::option::Option<InnerOp>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub real_value: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -60,16 +76,18 @@ pub struct SubProof {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregatePacket {
+    #[prost(message, repeated, tag = "1")]
+    pub packets: ::prost::alloc::vec::Vec<Packet>,
+    #[prost(uint64, repeated, tag = "2")]
+    pub packets_leaf_number: ::prost::alloc::vec::Vec<u64>,
     #[prost(message, repeated, tag = "3")]
     pub proof: ::prost::alloc::vec::Vec<SubProof>,
     #[prost(string, tag = "4")]
     pub signer: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "1")]
-    pub packets: ::prost::alloc::vec::Vec<Packet>,
     #[prost(message, optional, tag = "5")]
     pub height: ::core::option::Option<super::height::Height>,
-    #[prost(uint64, repeated, tag = "2")]
-    pub packets_leaf_number: ::prost::alloc::vec::Vec<u64>,
+    #[prost(message, repeated, tag = "6")]
+    pub leafops: ::prost::alloc::vec::Vec<LeafOp>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -119,6 +137,62 @@ impl HashOp {
             "BLAKE2B_512" => Some(Self::Blake2b512),
             "BLAKE2S_256" => Some(Self::Blake2s256),
             "BLAKE3" => Some(Self::Blake3),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum LengthOp {
+    /// NO_PREFIX don't include any length info
+    NoPrefix = 0,
+    /// VAR_PROTO uses protobuf (and go-amino) varint encoding of the length
+    VarProto = 1,
+    /// VAR_RLP uses rlp int encoding of the length
+    VarRlp = 2,
+    /// FIXED32_BIG uses big-endian encoding of the length as a 32 bit integer
+    Fixed32Big = 3,
+    /// FIXED32_LITTLE uses little-endian encoding of the length as a 32 bit integer
+    Fixed32Little = 4,
+    /// FIXED64_BIG uses big-endian encoding of the length as a 64 bit integer
+    Fixed64Big = 5,
+    /// FIXED64_LITTLE uses little-endian encoding of the length as a 64 bit integer
+    Fixed64Little = 6,
+    /// REQUIRE_32_BYTES is like NONE, but will fail if the input is not exactly 32 bytes (sha256 output)
+    Require32Bytes = 7,
+    /// REQUIRE_64_BYTES is like NONE, but will fail if the input is not exactly 64 bytes (sha512 output)
+    Require64Bytes = 8,
+}
+impl LengthOp {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            LengthOp::NoPrefix => "NO_PREFIX",
+            LengthOp::VarProto => "VAR_PROTO",
+            LengthOp::VarRlp => "VAR_RLP",
+            LengthOp::Fixed32Big => "FIXED32_BIG",
+            LengthOp::Fixed32Little => "FIXED32_LITTLE",
+            LengthOp::Fixed64Big => "FIXED64_BIG",
+            LengthOp::Fixed64Little => "FIXED64_LITTLE",
+            LengthOp::Require32Bytes => "REQUIRE_32_BYTES",
+            LengthOp::Require64Bytes => "REQUIRE_64_BYTES",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "NO_PREFIX" => Some(Self::NoPrefix),
+            "VAR_PROTO" => Some(Self::VarProto),
+            "VAR_RLP" => Some(Self::VarRlp),
+            "FIXED32_BIG" => Some(Self::Fixed32Big),
+            "FIXED32_LITTLE" => Some(Self::Fixed32Little),
+            "FIXED64_BIG" => Some(Self::Fixed64Big),
+            "FIXED64_LITTLE" => Some(Self::Fixed64Little),
+            "REQUIRE_32_BYTES" => Some(Self::Require32Bytes),
+            "REQUIRE_64_BYTES" => Some(Self::Require64Bytes),
             _ => None,
         }
     }

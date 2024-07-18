@@ -39,6 +39,7 @@ lazy_static! {
                     Command::new("create")
                         .arg(arg!(-s --source <SOURCE_CHAIN_ID>))
                         .arg(arg!(-t --target <TARGET_CHAIN_ID>))
+                        .arg(arg!(-c --clienttype <CLIENT_TYPE>))
                 )
         )
         .subcommand(
@@ -79,6 +80,7 @@ lazy_static! {
                 .arg_required_else_help(true)
                 .subcommand(
                     Command::new("start").about("start chain managers")
+                        .arg(arg!(-m --mode <START_MODE>))
                 ),
         );
     static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands();
@@ -109,7 +111,6 @@ lazy_static! {
 //         .subcommand(query_cosmos_account());
 //     static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands();
 // }
-
 
 // 获取全部子命令，用于构建commandcompleter
 pub fn all_subcommand(app: &Command, beginlevel: usize, input: &mut Vec<SubCmd>) {

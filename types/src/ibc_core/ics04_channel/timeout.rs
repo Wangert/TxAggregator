@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter, Error as FmtError};
+use std::fmt::{Display, Error as FmtError, Formatter};
 
 use crate::{error::TypesError, ibc_core::ics02_client::height::Height};
 
@@ -167,5 +167,32 @@ impl<'de> Deserialize<'de> for TimeoutHeight {
                 // Otherwise, no timeout
                 .unwrap_or(TimeoutHeight::Never)
         })
+    }
+}
+
+#[cfg(test)]
+pub mod timeout_tests {
+    use tendermint::Time;
+    use time::OffsetDateTime;
+
+    use crate::timestamp::Timestamp;
+
+    #[test]
+    pub fn time_convert_works() {
+        let t = Time::parse_from_rfc3339("2024-07-15T11:07:30.995474Z").expect("parse error!");
+        println!("{:?}", t);
+
+        let t: OffsetDateTime = t.into();
+        let s = t.unix_timestamp_nanos();
+        // assert!(s >= 0, "time {time:?} has negative `.timestamp()`");
+        let result = s as u64;
+
+        println!("{:?}",result);
+
+        let ts = Timestamp::from_nanoseconds(result).unwrap();
+        println!("{:?}", ts);
+
+        println!("{:?}", ts.nanoseconds());
+
     }
 }

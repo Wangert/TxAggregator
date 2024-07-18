@@ -1175,17 +1175,17 @@ pub mod channel_tests {
     pub fn channel_handshake_works() {
         init();
         let a_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
         let b_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
 
         let channel_side_a = ChannelSide {
             chain: cosmos_chain_a,
-            client_id: ClientId::from_str("07-tendermint-14").unwrap(),
-            connection_id: ConnectionId::from_str("connection-6").unwrap(),
+            client_id: ClientId::from_str("05-aggrelite-0").unwrap(),
+            connection_id: ConnectionId::from_str("connection-1").unwrap(),
             port_id: PortId::from_str("blog").unwrap(),
             channel_id: None,
             version: Some(Version("blog-1".to_string())),
@@ -1193,8 +1193,8 @@ pub mod channel_tests {
 
         let channel_side_b = ChannelSide {
             chain: cosmos_chain_b,
-            client_id: ClientId::from_str("07-tendermint-7").unwrap(),
-            connection_id: ConnectionId::from_str("connection-4").unwrap(),
+            client_id: ClientId::from_str("05-aggrelite-0").unwrap(),
+            connection_id: ConnectionId::from_str("connection-0").unwrap(),
             port_id: PortId::from_str("blog").unwrap(),
             channel_id: None,
             version: Some(Version("blog-1".to_string())),

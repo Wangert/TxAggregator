@@ -1198,20 +1198,20 @@ pub mod connection_tests {
     pub fn connection_handshake_works() {
         init();
         let a_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
         let b_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
 
         let mut connection_side_a = ConnectionSide::new(
             cosmos_chain_a,
-            ClientId::from_str("07-tendermint-15").unwrap(),
+            ClientId::from_str("05-aggrelite-0").unwrap(),
         );
         let mut connection_side_b = ConnectionSide::new(
             cosmos_chain_b,
-            ClientId::from_str("07-tendermint-9").unwrap(),
+            ClientId::from_str("05-aggrelite-0").unwrap(),
         );
 
         // connection_side_a.connection_id = Some(ConnectionId::from_str("connection-5").unwrap());
