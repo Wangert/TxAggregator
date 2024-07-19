@@ -786,7 +786,6 @@ impl CosmosChain {
         height: &Height,
     ) -> Result<HashMap<Packet, MerkleProofInfo>, Error> {
         let mut packets_proofs_map = HashMap::new();
-
         // build all packets' MerkleProofInfo
         for p in &packets {
             let r = self
@@ -812,6 +811,8 @@ impl CosmosChain {
                                 // println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
                                 // println!("key:{:?}-value:{:?}", ep.key, ep.value);
                                 // let leaf_hash = calculate_leaf_hash(ep.leaf.clone().unwrap(), ep.key.clone(), ep.value.clone()).unwrap();
+                                // println!("leaf_hash: {:?}", leaf_hash);
+
                                 // let mut step_hash = leaf_hash;
                                 // for i in ep.path.iter() {
                                 //     let next_hash = calculate_next_step_hash(i, step_hash.clone()).unwrap();
@@ -900,7 +901,7 @@ impl CosmosChain {
         packets: Vec<Packet>,
         target_signer: Signer,
         height: Height,
-    ) -> Result<(AggregatePacket, usize), Error> {
+    ) -> Result<(AggregatePacket, usize, usize), Error> {
         let packets_proofs_map = self
             .query_packets_merkle_proof_infos(packets.clone(), &height)
             .await?;
@@ -912,13 +913,16 @@ impl CosmosChain {
 
         let mut valid_packets = vec![];
         let mut packets_leaf_number = vec![];
+        let mut new_packets = vec![];
         let mut leafops = vec![];
+        let mut old_hash_counts: usize = 0;
         // generate temporary aggregate proof
         // For AggregateProof, the path closer to the Merkle root has a smaller level number.
         // In other words, the height of the Merkle path node determines its number in AggregateProof.
         // We need the same Merkle path for different cross-chain transactions to construct AggregateProof.
         for (packet, proof) in packets_proofs_map {
             let path_len = proof.full_path.len();
+            old_hash_counts = old_hash_counts + path_len;
             let leaf_hash_result =
                 calculate_leaf_hash(proof.leaf_op.clone(), proof.leaf_key, proof.leaf_value);
 
@@ -1001,11 +1005,11 @@ impl CosmosChain {
                         step_hash
                     };
 
-                    // println!("inner_op:{:?}---step_hash:{:?}", &pre_inner_op, step_hash);
+                    println!("inner_op:{:?}---step_hash:{:?}", &pre_inner_op, step_hash);
                     let next_step_hash_result =
                         calculate_next_step_hash(&pre_inner_op, step_hash.clone());
 
-                    // println!("next_step: {:?}", next_step_hash_result);
+                    println!("next_step: {:?}", next_step_hash_result);
 
                     // Check that the level number exists
                     if let Some(proof_meta_map) = temp_aggregate_proof.get_mut(&number) {
@@ -1082,6 +1086,7 @@ impl CosmosChain {
 
                 valid_packets.push(packet.clone());
                 packets_leaf_number.push(leaf_number);
+                new_packets.push(packet);
             }
         }
 
@@ -1112,17 +1117,18 @@ impl CosmosChain {
         // println!(")))))))))))))))))))))))))))");
 
         let arrgegate_packet = AggregatePacket {
-            packets,
+            packets: new_packets,
             packets_leaf_number,
             proof,
             signer: target_signer,
-            height,
+            height: height.increment(),
             leafops,
         };
 
         let hash_count = count_number_of_hash_computations_aggre(&arrgegate_packet);
+        old_hash_counts = old_hash_counts + packets.len();
 
-        Ok((arrgegate_packet, hash_count))
+        Ok((arrgegate_packet, hash_count, old_hash_counts))
     }
 
     // Built from the generating end of an event
@@ -1916,13 +1922,13 @@ pub mod chain_tests {
     pub fn query_client_state_works() {
         init();
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_1.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         // let rt = cosmos_chain.rt.clone();
-        let client_id = ClientId::from_str("07-tendermint-7").expect("client id error!");
+        let client_id = ClientId::from_str("05-aggrelite-0").expect("client id error!");
         let client_state_result =
             rt.block_on(cosmos_chain.query_client_state(&client_id, QueryHeight::Latest, true));
 
@@ -1936,7 +1942,7 @@ pub mod chain_tests {
     pub fn update_client_works() {
         init();
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_1.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();

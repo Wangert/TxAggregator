@@ -74,6 +74,7 @@ impl ChainManager {
 
         tokio::spawn(async move {
             loop {
+                println!("Start Grouping");
                 let group_size = ep.read().await.group_size as usize;
                 let mut current_ctxes = ep.read().await.get_ibc_events_class();
                 // ep.write().await.clear_ibc_events_class();
@@ -101,7 +102,7 @@ impl ChainManager {
                     ep.write().await.update_ctx_pending_groups(c, groups);
                 }
 
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                tokio::time::sleep(Duration::from_secs(10)).await;
             }
         });
     }
@@ -145,7 +146,7 @@ impl ChainManager {
                                         send_packet.packet,
                                         event_with_height.height,
                                         completed_txs_clone,
-                                    );
+                                    ).await;
                                 }
                                 Err(e) => {
                                     eprintln!("channel read error: {:?}", e);
@@ -287,7 +288,13 @@ impl ChainManager {
                     match channel_result {
                         Ok(chan) => {
                             let completed_txs_clone = completed_txs.clone();
-                            send_packet_aggregate_handler_task(chain_id.clone(), chan, events, completed_txs_clone);
+                            send_packet_aggregate_handler_task(
+                                chain_id.clone(),
+                                chan,
+                                events,
+                                completed_txs_clone,
+                            )
+                            .await;
                         }
                         Err(e) => {
                             eprintln!("channel read error: {:?}", e);
@@ -296,12 +303,16 @@ impl ChainManager {
                     }
                 }
 
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                tokio::time::sleep(Duration::from_secs(3)).await;
             }
         });
     }
 
-    pub fn events_aggregate_write_ack_handler(&mut self, channels: Arc<RwLock<ChannelPool>>, completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>) {
+    pub fn events_aggregate_write_ack_handler(
+        &mut self,
+        channels: Arc<RwLock<ChannelPool>>,
+        completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>,
+    ) {
         let ep = self.event_pool.clone();
         let chain_id = self.chain_id();
         tokio::spawn(async move {
@@ -322,7 +333,7 @@ impl ChainManager {
                                 chan.flipped(),
                                 events,
                                 completed_txs.clone(),
-                            );
+                            ).await;
                         }
                         Err(e) => {
                             eprintln!("channel read error: {:?}", e);
@@ -337,39 +348,37 @@ impl ChainManager {
     }
 }
 
-fn send_packet_aggregate_handler_task(
+async fn send_packet_aggregate_handler_task(
     chain_id: ChainId,
     channel: Channel,
     send_packet_events: Vec<IbcEventWithHeight>,
-    completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>
+    completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>,
 ) {
-    tokio::spawn(async move {
-        let height = send_packet_events[0].height;
+    let height = send_packet_events[0].height;
 
-        let mut packets = vec![];
-        for event in send_packet_events {
-            // println!("+++++++++++++++++++++++++++++++++");
-            // println!("Event:{:?}", event);
-            packets.push(event.event.packet().unwrap().clone());
-            // let packet = event.event.packet().unwrap();
+    let mut packets = vec![];
+    for event in send_packet_events {
+        // println!("+++++++++++++++++++++++++++++++++");
+        // println!("Event:{:?}", event);
+        packets.push(event.event.packet().unwrap().clone());
+        // let packet = event.event.packet().unwrap();
+    }
+
+    let ibc_events = send_aggregate_packet_handler(&channel, packets, height).await;
+
+    match ibc_events {
+        Ok(mut events) => {
+            println!(
+                "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
+                chain_id, events
+            );
+
+            completed_txs.write().await.append(&mut events);
         }
-
-        let ibc_events = send_aggregate_packet_handler(&channel, packets, height).await;
-
-        match ibc_events {
-            Ok(mut events) => {
-                println!(
-                    "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
-                    chain_id, events
-                );
-
-                completed_txs.write().await.append(&mut events);
-            }
-            Err(e) => {
-                eprintln!("send packet handler error: {:?}", e);
-            }
+        Err(e) => {
+            eprintln!("send packet handler error: {:?}", e);
         }
-    });
+    };
 }
 
 async fn send_aggregate_packet_handler_test(
@@ -389,7 +398,7 @@ async fn send_aggregate_packet_handler_test(
 
     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
     match a_packet {
-        Ok((p, hash_count)) => {
+        Ok((p, hash_count, old_hash_count)) => {
             // println!("AggregatePacket: {:?}", p);
             let raw_p: RawAggregatePacket = p.clone().into();
             println!("RawAggregatePacket: {:?}", raw_p);
@@ -399,7 +408,7 @@ async fn send_aggregate_packet_handler_test(
                 p.packets.len(),
                 p.proof.len(),
             );
-            println!("Number of on-chain hash computations: {:?}", hash_count);
+            println!("Number of on-chain hash computations: aggre({:?})-old({:?})", hash_count, old_hash_count);
             println!("Aggregate_Packet_Size: {}", std::mem::size_of_val(&raw_p));
         }
         Err(e) => eprintln!("{}", e),
@@ -413,7 +422,7 @@ async fn send_aggregate_packet_handler(
 ) -> Result<Vec<TxEventsWithHeightAndGasUsed>, Error> {
     let target_signer = channel.target_chain().account().get_signer()?;
 
-    let (a_packet, hash_count) = channel
+    let (a_packet, hash_count, old_hash_count) = channel
         .source_chain()
         .build_aggregate_packet(packets, target_signer, height)
         .await?;
@@ -426,7 +435,7 @@ async fn send_aggregate_packet_handler(
         raw_p.packets.len(),
         raw_p.proof.len()
     );
-    println!("Number of on-chain hash computations: {:?}", hash_count);
+    println!("Number of on-chain hash computations: aggre({:?})-old({:?})", hash_count, old_hash_count);
     println!("Aggregate_Packet_Size: {}", std::mem::size_of_val(&raw_p));
 
     let msgs = vec![a_packet.to_any()];
@@ -434,7 +443,7 @@ async fn send_aggregate_packet_handler(
     let query_height = channel.source_chain().query_latest_height().await.unwrap();
     // Build message(s) to update client on target chain
     let target_update_client_msgs = channel
-        .build_update_client_on_target_chain(query_height + 1)
+        .build_update_client_on_target_chain(height + 1)
         .await?;
 
     let update_event = channel
@@ -442,7 +451,7 @@ async fn send_aggregate_packet_handler(
         .send_messages_and_wait_commit(target_update_client_msgs)
         .await?;
 
-    // println!("Update Event: {:?}", update_event);
+    println!("Update Event: {:?}", update_event);
 
     let events = channel
         .target_chain()
@@ -474,29 +483,27 @@ fn write_acknowlegment_aggregate_handler_task(
     });
 }
 
-fn send_packet_handler_task(
+async fn send_packet_handler_task(
     chain_id: ChainId,
     channel: Channel,
     packet: Packet,
     height: Height,
     completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>,
 ) {
-    tokio::spawn(async move {
-        let ibc_events = send_packet_handler(&channel, &packet, height).await;
-        match ibc_events {
-            Ok(mut events) => {
-                println!(
-                    "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
-                    chain_id, events
-                );
+    let ibc_events = send_packet_handler(&channel, &packet, height).await;
+    match ibc_events {
+        Ok(mut events) => {
+            println!(
+                "[[CHAIN:{:?}]] Events_Handler Events: {:?}",
+                chain_id, events
+            );
 
-                completed_txs.write().await.append(&mut events);
-            }
-            Err(e) => {
-                eprintln!("send packet handler error: {:?}", e);
-            }
+            completed_txs.write().await.append(&mut events);
         }
-    });
+        Err(e) => {
+            eprintln!("send packet handler error: {:?}", e);
+        }
+    };
 }
 
 async fn send_packet_handler(
