@@ -85,12 +85,12 @@ pub mod grpc_consensus_tests {
         let rt = tokio::runtime::Runtime::new().expect("runtime create error");
 
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/chain_config.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_1.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let mut grpc_client = rt.block_on(grpc_ibcclient_client(&cosmos_chain.config.grpc_addr));
 
-        let client_id = ClientId::new("07-tendermint", 1).expect("client id new error!");
+        let client_id = ClientId::new("05-aggrelite", 0).expect("client id new error!");
 
         let rt = tokio::runtime::Runtime::new().unwrap();
 

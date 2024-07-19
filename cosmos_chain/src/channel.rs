@@ -995,6 +995,7 @@ impl Channel {
             .query_trusted_height(target_height, &client_id, client_state)
             .await?;
 
+
         let (target_header, support_headers) = if client_id.check_type(TENDERMINT_CLIENT_PREFIX) {
             self.source_chain()
                 .adjust_headers(

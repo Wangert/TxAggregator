@@ -1,0 +1,5 @@
+name = "wjt"
+type = "local"
+address = "cosmos1uzfl8hhkjytqzdkfzdnj2f04mhlpvzdjlyy6gq"
+pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"AknXQlAiWevmwK4fNnzHQxs66pGgZtnpLou1kMVq6zJo\"}"
+mnemonic = "pull green wait antique demand penalty pottery rescue ordinary upset hen slam vote alone garbage aspect heavy thrive person ancient athlete six spy van"

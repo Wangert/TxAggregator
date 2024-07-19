@@ -97,12 +97,12 @@ pub mod trpc_block_tests {
     pub async fn trpc_header_works() {
         init();
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_1.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let mut trpc_client = cosmos_chain.tendermint_rpc_client();
 
-        let height = Height::from(3773 as u32);
+        let height = Height::from(136 as u32);
         let header_results = test_detail_block_header(&mut trpc_client, height).await;
 
         match header_results {
