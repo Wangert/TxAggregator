@@ -263,6 +263,8 @@ define_error! {
             |_| { "client type not exist" },
         ModeNotExist
             |_| { "mode not exist" },    
+        GroupingTypeNotExist
+            |_| { "grouping type not exist" },    
 
         CryptoError
             [ TraceError<CryptoError> ]

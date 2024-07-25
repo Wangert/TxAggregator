@@ -36,7 +36,7 @@ use tendermint::{
 };
 use tendermint_light_client::types::LightBlock;
 use tendermint_rpc::{Client, HttpClient};
-use tokio::runtime::Runtime;
+use tokio::{runtime::Runtime, time::Instant};
 use tonic::transport::Channel;
 use tracing::{debug, info as tracing_info, info_span};
 use types::{
@@ -906,11 +906,12 @@ impl CosmosChain {
             .query_packets_merkle_proof_infos(packets.clone(), &height)
             .await?;
 
-        println!("packets_proofs: {:?}", packets_proofs_map);
+        // println!("packets_proofs: {:?}", packets_proofs_map);
 
         let mut temp_aggregate_proof: HashMap<u64, HashMap<String, (InnerOp, Vec<u8>, Vec<u8>)>> =
             HashMap::new();
 
+        let start_time = Instant::now();
         let mut valid_packets = vec![];
         let mut packets_leaf_number = vec![];
         let mut new_packets = vec![];
@@ -977,10 +978,10 @@ impl CosmosChain {
                     step_hash = if let Some((leaf_op, key, value)) =
                         proof.inner_key_value.get(&(i as u64))
                     {
-                        println!("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-                        println!("calculate inner leaf: {}", i);
-                        println!("value: {:?}", value);
-                        println!("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                        // println!("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                        // println!("calculate inner leaf: {}", i);
+                        // println!("value: {:?}", value);
+                        // println!("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                         let h_result =
                             calculate_leaf_hash(leaf_op.clone(), key.clone(), value.clone());
                         let h = if let Ok(h) = h_result {
@@ -1005,11 +1006,11 @@ impl CosmosChain {
                         step_hash
                     };
 
-                    println!("inner_op:{:?}---step_hash:{:?}", &pre_inner_op, step_hash);
+                    // println!("inner_op:{:?}---step_hash:{:?}", &pre_inner_op, step_hash);
                     let next_step_hash_result =
                         calculate_next_step_hash(&pre_inner_op, step_hash.clone());
 
-                    println!("next_step: {:?}", next_step_hash_result);
+                    // println!("next_step: {:?}", next_step_hash_result);
 
                     // Check that the level number exists
                     if let Some(proof_meta_map) = temp_aggregate_proof.get_mut(&number) {
@@ -1124,6 +1125,9 @@ impl CosmosChain {
             height: height.increment(),
             leafops,
         };
+
+        let d = start_time.elapsed();
+        println!("Build_Aggregate_Packet(Core_Time): {}ms, {}us", d.as_millis(), d.as_micros());
 
         let hash_count = count_number_of_hash_computations_aggre(&arrgegate_packet);
         old_hash_counts = old_hash_counts + packets.len();
