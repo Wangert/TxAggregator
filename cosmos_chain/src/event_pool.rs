@@ -33,7 +33,7 @@ impl EventPool {
             ibc_events_class: HashMap::new(),
             ctx_pending_groups: HashMap::new(),
             next_heights: HashMap::new(),
-            group_size: 400,
+            group_size: 20,
         }
     }
 

@@ -1192,9 +1192,9 @@ pub mod channel_tests {
     pub fn channel_handshake_works() {
         init();
         let a_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
         let b_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_b.toml";
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
@@ -1202,7 +1202,7 @@ pub mod channel_tests {
         let channel_side_a = ChannelSide {
             chain: cosmos_chain_a,
             client_id: ClientId::from_str("05-aggrelite-0").unwrap(),
-            connection_id: ConnectionId::from_str("connection-1").unwrap(),
+            connection_id: ConnectionId::from_str("connection-0").unwrap(),
             port_id: PortId::from_str("blog").unwrap(),
             channel_id: None,
             version: Some(Version("blog-1".to_string())),

@@ -239,21 +239,25 @@ impl Supervisor {
             if let Some(chain) = chain {
                 let u = format!("ws://{}/websocket", chain.config.tendermint_rpc_addr);
                 url = u.clone();
-            }
-
+            
+            
+            let chain_arc = Arc::new(chain.clone());
             if "mosaicxc".eq_ignore_ascii_case(mode) {
-                cm.init(url.as_str()).await;
-                cm.listen_events_start();
                 let channels = self.channel_pool.clone();
-                cm.events_aggregate_send_packet_handler(channels, self.completed_txs.clone());
+                cm.init(url.as_str()).await;
+                cm.listen_events_start(channels);
+                
+                cm.events_aggregate_send_packet_handler(self.channel_pool.clone(), self.completed_txs.clone());
             } else if "cosmosibc".eq_ignore_ascii_case(mode) {
-                cm.init(url.as_str()).await;
-                cm.listen_events_start();
                 let channels = self.channel_pool.clone();
-                cm.events_handler(channels, self.completed_txs.clone());
+                cm.init(url.as_str()).await;
+                cm.listen_events_start(channels);
+                
+                cm.events_handler(self.channel_pool.clone(), self.completed_txs.clone());
             } else {
                 println!("!!!!mode is not exist!!!!");
             }
+        }
         }
     }
 

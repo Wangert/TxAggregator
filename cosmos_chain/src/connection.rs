@@ -1225,11 +1225,11 @@ pub mod connection_tests {
 
         let mut connection_side_a = ConnectionSide::new(
             cosmos_chain_a,
-            ClientId::from_str("05-aggrelite-0").unwrap(),
+            ClientId::from_str("05-aggrelite-5").unwrap(),
         );
         let mut connection_side_b = ConnectionSide::new(
             cosmos_chain_b,
-            ClientId::from_str("05-aggrelite-1").unwrap(),
+            ClientId::from_str("05-aggrelite-5").unwrap(),
         );
 
         // connection_side_a.connection_id = Some(ConnectionId::from_str("connection-5").unwrap());

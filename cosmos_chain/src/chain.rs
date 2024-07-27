@@ -906,7 +906,7 @@ impl CosmosChain {
             .query_packets_merkle_proof_infos(packets.clone(), &height)
             .await?;
 
-        println!("packets_proofs: {:?}", packets_proofs_map);
+        // println!("packets_proofs: {:?}", packets_proofs_map);
 
         let mut temp_aggregate_proof: HashMap<u64, HashMap<String, (InnerOp, Vec<u8>, Vec<u8>)>> =
             HashMap::new();
@@ -1005,11 +1005,11 @@ impl CosmosChain {
                         step_hash
                     };
 
-                    println!("inner_op:{:?}---step_hash:{:?}", &pre_inner_op, step_hash);
+                    // println!("inner_op:{:?}---step_hash:{:?}", &pre_inner_op, step_hash);
                     let next_step_hash_result =
                         calculate_next_step_hash(&pre_inner_op, step_hash.clone());
 
-                    println!("next_step: {:?}", next_step_hash_result);
+                    // println!("next_step: {:?}", next_step_hash_result);
 
                     // Check that the level number exists
                     if let Some(proof_meta_map) = temp_aggregate_proof.get_mut(&number) {
@@ -1517,7 +1517,6 @@ impl CosmosChain {
         let client_consensus_state_on_source = self
             .query_client_consensus_state(&client_id, target_height, QueryHeight::Latest, false)
             .await;
-
         if let Ok(_) = client_consensus_state_on_source {
             debug!("consensus state already exists at height {target_height}, skipping update");
             return Ok(vec![]);
@@ -1829,12 +1828,12 @@ pub mod chain_tests {
     pub fn create_aggrelite_client_works() {
         init();
         let a_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_xc_chain_a.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
         let b_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_b_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_b.toml";
 
-        let cosmos_chain_a = CosmosChain::new(a_file_path);
-        let cosmos_chain_b = CosmosChain::new(b_file_path);
+        let cosmos_chain_a = CosmosChain::new(b_file_path);
+        let cosmos_chain_b = CosmosChain::new(a_file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         // let rt_a = cosmos_chain_a.rt.clone();
@@ -1864,9 +1863,9 @@ pub mod chain_tests {
     pub fn create_client_works() {
         init();
         let a_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
         let b_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_b.toml";
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
@@ -1942,7 +1941,7 @@ pub mod chain_tests {
     pub fn update_client_works() {
         init();
         let file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_a_config.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1951,7 +1950,7 @@ pub mod chain_tests {
         let target_height = rt
             .block_on(cosmos_chain.query_latest_height())
             .expect("query latest height error!");
-        let client_id = ClientId::from_str("05-aggrelite-0").expect("client id error!");
+        let client_id = ClientId::from_str("05-aggrelite-5").expect("client id error!");
 
         let update_client_msgs = rt
             .block_on(cosmos_chain.build_update_client_own(&client_id, target_height))
