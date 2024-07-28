@@ -25,7 +25,7 @@ hd_path = "m/44'/118'/0'/0/0"
 trusted_node = false
 
 default_gas = 100000
-max_gas = 4000000
+max_gas = 40000000
 gas_multiplier = 1.1
 fee_granter = ""
 
@@ -34,7 +34,7 @@ store_prefix = "ibc"
 
 # tx
 max_msg_num = 4
-max_tx_size = 1048576
+max_tx_size = 10485760
 
 # Set clock dirft time (s)
 clock_drift = 5

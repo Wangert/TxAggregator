@@ -4,7 +4,7 @@ use clap::{ArgMatches, Command};
 use cli::cmd::rootcmd::CMD;
 use cosmos_chain::{
     chain::CosmosChain,
-    chain_manager::ChainManager,
+    chain_manager::{ChainManager, GroupingType},
     channel::{Channel, ChannelSide},
     channel_pool::ChannelPool,
     connection::{Connection, ConnectionSide},
@@ -230,7 +230,7 @@ impl Supervisor {
         Ok(channel)
     }
 
-    async fn start(&mut self, mode: &str) {
+    async fn start(&mut self, mode: &str, gtype: &str) {
         let chains = self.registered_chains.clone();
         for (_, cm) in &mut self.chain_managers {
             let chain = chains.get_chain_by_id(&cm.chain_id());
@@ -239,19 +239,34 @@ impl Supervisor {
             if let Some(chain) = chain {
                 let u = format!("ws://{}/websocket", chain.config.tendermint_rpc_addr);
                 url = u.clone();
-            
-            
-            let chain_arc = Arc::new(chain.clone());
+            }
+
+            let g_type = if "0".eq_ignore_ascii_case(gtype) {
+                GroupingType::NonGrouping
+            } else if "1".eq_ignore_ascii_case(gtype) {
+                GroupingType::Random
+            } else if "2".eq_ignore_ascii_case(gtype) {
+                GroupingType::ClusterGrouping
+            } else {
+                GroupingType::None
+            };
+
             if "mosaicxc".eq_ignore_ascii_case(mode) {
                 let channels = self.channel_pool.clone();
                 cm.init(url.as_str()).await;
-                cm.listen_events_start(channels);
+                cm.listen_events_start(g_type,channels);
+                // let channels = self.channel_pool.clone();
+                // cm.init(url.as_str()).await;
+                // cm.listen_events_start(channels);
                 
                 cm.events_aggregate_send_packet_handler(self.channel_pool.clone(), self.completed_txs.clone());
             } else if "cosmosibc".eq_ignore_ascii_case(mode) {
                 let channels = self.channel_pool.clone();
                 cm.init(url.as_str()).await;
-                cm.listen_events_start(channels);
+                cm.listen_events_start(g_type,channels);
+                // let channels = self.channel_pool.clone();
+                // cm.init(url.as_str()).await;
+                // cm.listen_events_start(channels);
                 
                 cm.events_handler(self.channel_pool.clone(), self.completed_txs.clone());
             } else {
@@ -259,7 +274,7 @@ impl Supervisor {
             }
         }
         }
-    }
+    
 
     async fn cmd_match(&mut self, matches: &ArgMatches) -> Result<(), Error> {
         match matches.subcommand() {
@@ -460,6 +475,9 @@ impl Supervisor {
                         let mode = sub_matches
                             .get_one::<String>("mode")
                             .ok_or_else(Error::mode_not_exist)?;
+                        let gtype = sub_matches
+                            .get_one::<String>("gtype")
+                            .ok_or_else(Error::grouping_type_not_exist)?;
                         // let source_chain = sub_matches.get_one::<String>("source");
                         // let target_chain = sub_matches.get_one::<String>("target");
                         println!();
@@ -469,7 +487,7 @@ impl Supervisor {
                         //     source_chain, target_chain
                         // );
 
-                        self.start(&mode).await;
+                        self.start(&mode, &gtype).await;
                     }
                     ("querytotalgas", sub_matches) => {
                         let (tx_counts, tgas) = self.query_completed_txs_counts_and_total_gas().await;
@@ -485,7 +503,7 @@ impl Supervisor {
 
         Ok(())
     }
-}
+    }
 
 pub struct CreateChannelParams {
     pub chain_id: ChainId,

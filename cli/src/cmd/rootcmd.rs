@@ -81,6 +81,7 @@ lazy_static! {
                 .subcommand(
                     Command::new("start").about("start chain managers")
                         .arg(arg!(-m --mode <START_MODE>))
+                        .arg(arg!(-g --gtype <GROUPING_TYPE>))
                 )
                 .subcommand(
                     Command::new("querytotalgas").about("query current total gas of txs")),

@@ -2,9 +2,15 @@ use std::{borrow::BorrowMut, collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Chain;
 use ics23::InnerOp;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+use tendermint::serializers::bytes::vec_base64string;
 use tendermint_rpc::{event, SubscriptionClient};
 // use tendermint_rpc::SubscriptionClient;
-use tokio::{sync::RwLock, time};
+use tokio::{
+    sync::RwLock,
+    time::{self, Instant},
+};
 use types::{
     ibc_core::{
         ics02_client::height::Height,
@@ -32,7 +38,13 @@ use crate::{
     group::{self, make_groups},
     query::websocket::subscribe::EventSubscriptions,
 };
-// use crate::query::websocket::subscribe::{EventPool, EventSubscriptions};
+
+pub enum GroupingType {
+    NonGrouping,
+    Random,
+    ClusterGrouping,
+    None,
+}
 // #[derive(Clone)]
 pub struct ChainManager {
     chain_id: ChainId,
@@ -64,16 +76,16 @@ impl ChainManager {
             .unwrap();
     }
 
-    pub fn listen_events_start(&mut self, channels: Arc<RwLock<ChannelPool>>) {
+    pub fn listen_events_start(&mut self, g_type: GroupingType,channels: Arc<RwLock<ChannelPool>>) {
         let event_pool_clone = self.event_pool.clone();
 
         self.event_subscriptions
             .listen_events(self.chain_id(), event_pool_clone);
 
-        self.grouping_start(channels);
+        self.grouping_start(g_type,channels);
     }
 
-    pub fn grouping_start(&mut self, channels: Arc<RwLock<ChannelPool>>) {
+    pub fn grouping_start(&mut self, g_type: GroupingType, channels: Arc<RwLock<ChannelPool>>) {
         let ep = self.event_pool.clone();
         let cp = channels.clone();
         tokio::spawn(async move {
@@ -84,26 +96,40 @@ impl ChainManager {
                 // ep.write().await.clear_ibc_events_class();
 
                 for (c, events) in current_ctxes.iter_mut() {
-                    let (_, height, channelkey) = c;
-                    let channelop = cp.read().await.query_channel_by_key(&channelkey);
-                    let groups =
-                        make_groups(events, height, channelkey, channelop, group_size).await;
-                    // loop {
-                    //     let mut new_group = vec![];
-                    //     if events.len() > group_size {
-                    //         new_group = events.drain(..group_size).collect::<CTXGroup>();
-                    //         groups.push(new_group.clone());
-                    //         // println!("200:{:?}", new_group);
-                    //     } else {
-                    //         new_group = events.drain(..).collect::<CTXGroup>();
-                    //         groups.push(new_group.clone());
+                    let mut groups: Vec<CTXGroup> = vec![];
 
-                    //         ep.write().await.get_ibc_events_class_mut().remove(c);
-                    //         // println!("小于200:{:?}", new_group);
-                    //         break;
-                    //     }
-                    // }
-                    ep.write().await.get_ibc_events_class_mut().remove(c);
+                    match g_type {
+                        GroupingType::NonGrouping => {}
+                        GroupingType::Random => {
+                            events.shuffle(&mut thread_rng());
+                            loop {
+                                let mut new_group = vec![];
+                                if events.len() > group_size {
+                                    new_group = events.drain(..group_size).collect::<CTXGroup>();
+                                    groups.push(new_group.clone());
+                                    // println!("200:{:?}", new_group);
+                                } else {
+                                    new_group = events.drain(..).collect::<CTXGroup>();
+                                    groups.push(new_group.clone());
+
+                                    ep.write().await.get_ibc_events_class_mut().remove(c);
+                                    // println!("小于200:{:?}", new_group);
+                                    break;
+                                }
+                            }
+                        }
+                        GroupingType::ClusterGrouping => {
+                            let (_, height, channelkey) = c;
+                            let channelop = cp.read().await.query_channel_by_key(&channelkey);
+                            groups =
+                                make_groups(events, height, channelop, group_size)
+                                    .await;
+                            ep.write().await.get_ibc_events_class_mut().remove(c);
+                        }
+                        GroupingType::None => {}
+                    }
+
+                    // ep.write().await.get_ibc_events_class_mut().remove(c);
                     println!("我来了我来了我来了我来了我来了groups_num: {}", groups.len());
 
                     ep.write().await.update_ctx_pending_groups(c, groups);
@@ -431,14 +457,16 @@ async fn send_aggregate_packet_handler(
     height: Height,
 ) -> Result<Vec<TxEventsWithHeightAndGasUsed>, Error> {
     let target_signer = channel.target_chain().account().get_signer()?;
+
+    let start_time = Instant::now();
     let (a_packet, hash_count, old_hash_count) = channel
         .source_chain()
         .build_aggregate_packet(packets, target_signer, height)
         .await?;
+    let d = start_time.elapsed();
 
     let raw_p: RawAggregatePacket = a_packet.clone().into();
     // println!("RawAggregatePacket: {:?}", raw_p);
-    println!();
     println!(
         "AggregatePacket: packets count({})-subproof count({})",
         raw_p.packets.len(),
@@ -449,6 +477,7 @@ async fn send_aggregate_packet_handler(
         hash_count, old_hash_count
     );
     println!("Aggregate_Packet_Size: {}", std::mem::size_of_val(&raw_p));
+    println!("Build Aggregate Packet Duration: {}", d.as_millis());
 
     let msgs = vec![a_packet.to_any()];
     // tokio::time::sleep(Duration::from_secs(5)).await;
@@ -652,7 +681,7 @@ pub mod chain_manager_tests {
     };
 
     use crate::chain::CosmosChain;
-    use crate::chain_manager::ChainManager;
+    use crate::chain_manager::{ChainManager, GroupingType};
     use crate::channel::{Channel, ChannelSide};
     use crate::channel_pool::ChannelPool;
     use crate::event_pool::EventPool;
@@ -669,7 +698,7 @@ pub mod chain_manager_tests {
             .event_subscriptions
             .init_subscriptions("ws://10.176.35.58:26659/websocket")
             .await;
-        // cm.listen_events_start();
+        // cm.listen_events_start(GroupingType::NonGrouping);
 
         cm.read().await;
         // cm.read_send_packet().await;
@@ -733,7 +762,7 @@ pub mod chain_manager_tests {
             .event_subscriptions
             .init_subscriptions("ws://127.0.0.1:26657/websocket")
             .await;
-        // cm.listen_events_start();
+        // cm.listen_events_start(GroupingType::NonGrouping);
 
         let channels = Arc::new(RwLock::new(channel_pool));
         let completed_txs = Arc::new(RwLock::new(vec![]));
@@ -793,7 +822,7 @@ pub mod chain_manager_tests {
             .event_subscriptions
             .init_subscriptions("ws://127.0.0.1:26657/websocket")
             .await;
-        // cm.listen_events_start();
+        // cm.listen_events_start(GroupingType::NonGrouping);
 
         let channels = Arc::new(RwLock::new(channel_pool));
         // println!("000000000000");
