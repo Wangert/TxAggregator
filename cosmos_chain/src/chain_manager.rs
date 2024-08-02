@@ -440,6 +440,16 @@ async fn send_aggregate_packet_handler(
 ) -> Result<Vec<TxEventsWithHeightAndGasUsed>, Error> {
     let target_signer = channel.target_chain().account().get_signer()?;
 
+    let msg_set_hash = channel.source_chain().bulid_msg_set_hash_value(&packets[0].clone(), &height, target_signer.clone()).await?;
+
+    let event_1 = channel
+        .target_chain()
+        .send_messages_and_wait_commit(msg_set_hash)
+        .await?;
+
+    println!("$$$$$$$$$$$$$$$$$$$$$$$$");
+    println!("SetHash: {:?}", event_1);
+
     let start_time = Instant::now(); 
     let (a_packet, hash_count, old_hash_count) = channel
         .source_chain()

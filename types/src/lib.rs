@@ -8,3 +8,4 @@ pub mod serializers;
 pub mod message;
 pub mod proofs;
 pub mod proto;
+pub mod merkle_root;

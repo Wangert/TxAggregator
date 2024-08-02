@@ -86,6 +86,7 @@ use types::{
             header::Header,
         },
     },
+    merkle_root::MsgSetHashValue,
     message::Msg,
     proofs::{ConsensusProof, Proofs},
     signer::Signer,
@@ -780,6 +781,75 @@ impl CosmosChain {
         }
     }
 
+    pub async fn bulid_msg_set_hash_value(
+        &self,
+        packet: &Packet,
+        height: &Height,
+        signer: Signer,
+    ) -> Result<Vec<Any>, Error> {
+        let r = self
+            .query_packet_commitment(
+                &packet.source_port,
+                &packet.source_channel,
+                &packet.sequence,
+                QueryHeight::Specific(height.clone()),
+                true,
+            )
+            .await?;
+
+        let hash_list = match r.1 {
+            Some(p) => {
+                let hash_list = p
+                    .proofs
+                    .clone()
+                    .iter()
+                    .map(|cp| match &cp.proof {
+                        Some(Proof::Exist(ep)) => {
+                            println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
+                            println!("key:{:?}-value:{:?}", ep.key, ep.value);
+                            let leaf_hash = calculate_leaf_hash(
+                                ep.leaf.clone().unwrap(),
+                                ep.key.clone(),
+                                ep.value.clone(),
+                            )
+                            .unwrap();
+                            println!("leaf_hash: {:?}", leaf_hash);
+
+                            let mut step_hash = leaf_hash;
+                            for i in ep.path.iter() {
+                                let next_hash =
+                                    calculate_next_step_hash(i, step_hash.clone()).unwrap();
+                                println!("next_hash:{:?}", next_hash);
+                                step_hash = next_hash;
+                            }
+
+                            println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
+                            step_hash
+                        }
+                        _ => vec![],
+                    })
+                    .collect_vec();
+
+                hash_list
+            }
+            _ => {
+                vec![]
+            }
+        };
+
+        if hash_list.len() == 0 {
+            return  Err(Error::empty_response_proof());
+        }
+
+        let msg = MsgSetHashValue {
+            key: packet.clone(),
+            value: hash_list.last().unwrap().clone(),
+            signer: signer,
+        };
+
+        Ok(vec![msg.to_any()])
+    }
+
     pub async fn query_packets_merkle_proof_infos(
         &self,
         packets: Vec<Packet>,
@@ -1127,7 +1197,11 @@ impl CosmosChain {
         };
 
         let d = start_time.elapsed();
-        println!("Build_Aggregate_Packet(Core_Time): {}ms, {}us", d.as_millis(), d.as_micros());
+        println!(
+            "Build_Aggregate_Packet(Core_Time): {}ms, {}us",
+            d.as_millis(),
+            d.as_micros()
+        );
 
         let hash_count = count_number_of_hash_computations_aggre(&arrgegate_packet);
         old_hash_counts = old_hash_counts + packets.len();
