@@ -1871,15 +1871,15 @@ pub mod chain_tests {
         let b_file_path =
             "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
 
-        let cosmos_chain_a = CosmosChain::new(a_file_path);
-        let cosmos_chain_b = CosmosChain::new(b_file_path);
+        let cosmos_chain_a = CosmosChain::new(b_file_path);
+        let cosmos_chain_b = CosmosChain::new(a_file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         // let rt_a = cosmos_chain_a.rt.clone();
         // let rt_b = cosmos_chain_b.rt.clone();
         let client_settings = cosmos_chain_a.client_settings(&cosmos_chain_b.config);
         let client_state = rt
-            .block_on(cosmos_chain_b.build_client_state(&client_settings, ClientType::Aggrelite))
+            .block_on(cosmos_chain_b.build_client_state(&client_settings, ClientType::Tendermint))
             .expect("build client state error!");
         let consensus_state = rt
             .block_on(cosmos_chain_b.build_consensus_state(client_state.clone()))
