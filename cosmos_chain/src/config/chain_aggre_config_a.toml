@@ -1,4 +1,4 @@
-chain_id = "aggrechain-1"
+chain_id = "chain_1"
 # grpc address
 # grpc_addr = "http://127.0.0.1:9090"
 grpc_addr = "http://10.176.35.58:9090"

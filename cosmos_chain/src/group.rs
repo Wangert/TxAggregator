@@ -1,7 +1,13 @@
 use crate::{channel::Channel, channel_pool::ChannelPool, error::Error, event_pool::CTXGroup};
+use actix_rt::time;
 use ics23::InnerOp;
-use secp256k1::rand::{self, Rng};
-use std::{cmp::PartialEq, collections::HashMap, sync::Arc};
+use rand::Rng;
+use std::{
+    cmp::PartialEq,
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tokio::sync::RwLock;
 use types::{
     ibc_core::{ics02_client::height::Height, ics04_channel::packet::Packet},
@@ -51,13 +57,13 @@ pub fn compute_overlap_matrix(paths: &Vec<Vec<InnerOp>>) -> Vec<Vec<usize>> {
     let n = paths.len();
     let mut overlap = vec![vec![0; n]; n];
 
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let count = compute_overlap(&paths[i], &paths[j]);
+    paths.iter().enumerate().for_each(|(i, path1)| {
+        (i + 1..n).for_each(|j| {
+            let count = compute_overlap(path1, &paths[j]);
             overlap[i][j] = count;
             overlap[j][i] = count;
-        }
-    }
+        });
+    });
     overlap
 }
 #[derive(Clone, Debug)]
@@ -99,6 +105,7 @@ impl Cluster {
             let number = rng.gen_range(0..packet_len);
             selected_numbers.push(number);
         }
+
         let mut clusters: Vec<Cluster> = Vec::new();
         for i in 0..num {
             let c = Cluster {
@@ -106,7 +113,7 @@ impl Cluster {
                 ctxs: {
                     let mut p: Vec<CTX> = Vec::new();
 
-                    p.push(ctxs[selected_numbers[i]].clone());
+                    // p.push(ctxs[selected_numbers[i]].clone());
                     p
                 },
             };
@@ -134,39 +141,41 @@ impl Cluster {
                     ctxs[i].distance = min_distance;
                 }
             }
-            if i == clusters[closest_cluster].center{
-                continue;
-            }
+            // if i == clusters[closest_cluster].center {
+            //     continue;
+            // }
             println!("closest_cluster:{}", closest_cluster.clone());
             clusters[closest_cluster].ctxs.push(ctxs[i].clone());
         }
     }
 }
 
-pub fn adjust_group(clusters: &mut Vec<Cluster>, matrix: &Vec<Vec<usize>>,groupsize:usize) -> Vec<Cluster> {
+pub fn adjust_group(
+    clusters: &mut Vec<Cluster>,
+    matrix: &Vec<Vec<usize>>,
+    groupsize: usize,
+) -> Vec<Cluster> {
     let mut old_clusters: Vec<Cluster> = clusters.clone();
-    let mut result_clusters:Vec<Cluster>=vec![];
+    let mut result_clusters: Vec<Cluster> = vec![];
     loop {
-        
         if old_clusters.len() == 1 {
             result_clusters.push(old_clusters[0].clone());
             break;
         }
         if old_clusters.len() == 0 {
-            
             break;
         }
-        println!("现在的cluster个数是：{}",old_clusters.len());
+        println!("现在的cluster个数是：{}", old_clusters.len());
         let mut extra_ctxs = Vec::new();
         let mut flag = 0;
-        for cluster in old_clusters.clone(){
-            if cluster.ctxs.len()>groupsize{
-                 flag = 1;
-                 break;
+        for cluster in old_clusters.clone() {
+            if cluster.ctxs.len() > groupsize {
+                flag = 1;
+                break;
             }
-        };
-        if flag == 0{
-            for cluster in old_clusters.clone(){
+        }
+        if flag == 0 {
+            for cluster in old_clusters.clone() {
                 result_clusters.push(cluster.clone());
             }
             break;
@@ -176,10 +185,13 @@ pub fn adjust_group(clusters: &mut Vec<Cluster>, matrix: &Vec<Vec<usize>>,groups
                 // 创建一个可变副本来处理排序和分割
                 let mut cluster_clone = cluster.clone();
                 CTX::sort_by_distance(&mut cluster_clone.ctxs);
-    
+
                 // 将大于 groupsize 的 CTX 放入 extra_ctxs 中
                 let excess = cluster_clone.ctxs.split_off(groupsize);
-                println!("将超过的交易去除后现在的groupsize是：{}",cluster_clone.ctxs.len());
+                println!(
+                    "将超过的交易去除后现在的groupsize是：{}",
+                    cluster_clone.ctxs.len()
+                );
                 extra_ctxs.extend(excess);
                 result_clusters.push(cluster_clone.clone());
                 // 返回 false 以从 old_clusters 中删除当前 Cluster
@@ -191,15 +203,14 @@ pub fn adjust_group(clusters: &mut Vec<Cluster>, matrix: &Vec<Vec<usize>>,groups
         });
         Cluster::group(&mut old_clusters, matrix, &mut extra_ctxs);
     }
-    return result_clusters
+    return result_clusters;
 }
 
 pub async fn make_groups(
     events: &mut Vec<IbcEventWithHeight>,
     height: &Height,
-    channelkey: &String,
     channelop: Option<Channel>,
-    groupsize:usize
+    groupsize: usize,
 ) -> Vec<CTXGroup> {
     let mut packets: Vec<Packet> = vec![];
     let mut records: HashMap<Packet, IbcEventWithHeight> = HashMap::new();
@@ -227,22 +238,19 @@ pub async fn make_groups(
                 }
             }
         }
+        let start = SystemTime::now();
         let matrix = compute_overlap_matrix(&paths);
-        println!("matrix!!!!!");
-        for row in matrix.clone() {
-            for element in row {
-                print!("{} ", element);
-            }
-            println!();
-        }
+        let end1 = SystemTime::now();
+        let duration1 = end1.duration_since(start).expect("Time went backwards");
+        println!("矩阵消耗时间: {} millseconds", duration1.as_millis());
         let num = (events.len() + groupsize - 1) / groupsize;
-        println!("一共有{}笔交易需要分组",events.len());
-        println!("需要分成{}组",num);
+        println!("一共有{}笔交易需要分组", events.len());
+        println!("需要分成{}组", num);
         // let num = 5;
         // let clone_packets = packets.clone();
         let (mut clusters, mut ctxs) = Cluster::new(&packets.clone(), num);
         Cluster::group(&mut clusters, &matrix.clone(), &mut ctxs);
-        let result_clusters = adjust_group(&mut clusters,&matrix.clone(),groupsize);
+        let result_clusters = adjust_group(&mut clusters, &matrix.clone(), groupsize);
         for cs in result_clusters {
             let mut ctxgroup: CTXGroup = vec![];
             let ps = cs.get_ctxs();
@@ -253,6 +261,10 @@ pub async fn make_groups(
             }
             groups.push(ctxgroup);
         }
+        let end = SystemTime::now();
+        let duration = end.duration_since(start).expect("Time went backwards");
+        println!("分组消耗时间: {} millseconds", duration.as_millis());
     }
+
     return groups;
 }
