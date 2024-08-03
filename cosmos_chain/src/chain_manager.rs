@@ -99,7 +99,23 @@ impl ChainManager {
                     let mut groups: Vec<CTXGroup> = vec![];
 
                     match g_type {
-                        GroupingType::NonGrouping => {}
+                        GroupingType::NonGrouping => {
+                            loop {
+                                let mut new_group = vec![];
+                                if events.len() > group_size {
+                                    new_group = events.drain(..group_size).collect::<CTXGroup>();
+                                    groups.push(new_group.clone());
+                                    // println!("200:{:?}", new_group);
+                                } else {
+                                    new_group = events.drain(..).collect::<CTXGroup>();
+                                    groups.push(new_group.clone());
+
+                                    ep.write().await.get_ibc_events_class_mut().remove(c);
+                                    // println!("小于200:{:?}", new_group);
+                                    break;
+                                }
+                            }
+                        }
                         GroupingType::Random => {
                             events.shuffle(&mut thread_rng());
                             loop {
