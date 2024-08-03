@@ -11,7 +11,7 @@ use lazy_static::lazy_static;
 use std::borrow::Borrow;
 use std::path::PathBuf;
 
-use sysinfo::{PidExt, System, SystemExt};
+use sysinfo::System;
 
 lazy_static! {
     pub static ref CMD: clap::Command<'static> = Command::new("CTXA")

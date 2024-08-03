@@ -1595,7 +1595,6 @@ impl CosmosChain {
         let client_consensus_state_on_source = self
             .query_client_consensus_state(&client_id, target_height, QueryHeight::Latest, false)
             .await;
-
         if let Ok(_) = client_consensus_state_on_source {
             debug!("consensus state already exists at height {target_height}, skipping update");
             return Ok(vec![]);
@@ -1907,12 +1906,12 @@ pub mod chain_tests {
     pub fn create_aggrelite_client_works() {
         init();
         let a_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_xc_chain_a.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
         let b_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_xc_chain_a.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
 
-        let cosmos_chain_a = CosmosChain::new(a_file_path);
-        let cosmos_chain_b = CosmosChain::new(b_file_path);
+        let cosmos_chain_a = CosmosChain::new(b_file_path);
+        let cosmos_chain_b = CosmosChain::new(a_file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         // let rt_a = cosmos_chain_a.rt.clone();
@@ -1942,19 +1941,19 @@ pub mod chain_tests {
     pub fn create_client_works() {
         init();
         let a_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
         let b_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
 
-        let cosmos_chain_a = CosmosChain::new(a_file_path);
-        let cosmos_chain_b = CosmosChain::new(b_file_path);
+        let cosmos_chain_a = CosmosChain::new(b_file_path);
+        let cosmos_chain_b = CosmosChain::new(a_file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         // let rt_a = cosmos_chain_a.rt.clone();
         // let rt_b = cosmos_chain_b.rt.clone();
         let client_settings = cosmos_chain_a.client_settings(&cosmos_chain_b.config);
         let client_state = rt
-            .block_on(cosmos_chain_b.build_client_state(&client_settings, ClientType::Aggrelite))
+            .block_on(cosmos_chain_b.build_client_state(&client_settings, ClientType::Tendermint))
             .expect("build client state error!");
         let consensus_state = rt
             .block_on(cosmos_chain_b.build_consensus_state(client_state.clone()))
@@ -2020,7 +2019,7 @@ pub mod chain_tests {
     pub fn update_client_works() {
         init();
         let file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_1.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
         let cosmos_chain = CosmosChain::new(file_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -2029,7 +2028,7 @@ pub mod chain_tests {
         let target_height = rt
             .block_on(cosmos_chain.query_latest_height())
             .expect("query latest height error!");
-        let client_id = ClientId::from_str("05-aggrelite-0").expect("client id error!");
+        let client_id = ClientId::from_str("05-aggrelite-5").expect("client id error!");
 
         let update_client_msgs = rt
             .block_on(cosmos_chain.build_update_client_own(&client_id, target_height))

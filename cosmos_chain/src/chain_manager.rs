@@ -1,12 +1,16 @@
 use std::{borrow::BorrowMut, collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Chain;
-use rand::thread_rng;
+use ics23::InnerOp;
 use rand::seq::SliceRandom;
+use rand::thread_rng;
 use tendermint::serializers::bytes::vec_base64string;
 use tendermint_rpc::{event, SubscriptionClient};
 // use tendermint_rpc::SubscriptionClient;
-use tokio::{sync::RwLock, time::{self, Instant}};
+use tokio::{
+    sync::RwLock,
+    time::{self, Instant},
+};
 use types::{
     ibc_core::{
         ics02_client::height::Height,
@@ -25,20 +29,22 @@ use types::proto::aggregate_packet::AggregatePacket as RawAggregatePacket;
 
 //wjt
 use crate::{
+    chain::CosmosChain,
     channel::Channel,
     channel_pool::ChannelPool,
     error::Error,
-    event_pool::{CTXGroup, EventClassType, EventPool, SEND_PACKET_EVENT, WRITE_ACK_EVENT},
+    event_pool::{CTXGroup, EventPool, SEND_PACKET_EVENT, WRITE_ACK_EVENT},
+    group::Cluster,
+    group::{self, make_groups},
     query::websocket::subscribe::EventSubscriptions,
 };
-
 
 pub enum GroupingType {
     NonGrouping,
     Random,
     ClusterGrouping,
     None,
-} 
+}
 // #[derive(Clone)]
 pub struct ChainManager {
     chain_id: ChainId,
@@ -70,18 +76,18 @@ impl ChainManager {
             .unwrap();
     }
 
-    pub fn listen_events_start(&mut self, g_type: GroupingType) {
+    pub fn listen_events_start(&mut self, g_type: GroupingType,channels: Arc<RwLock<ChannelPool>>) {
         let event_pool_clone = self.event_pool.clone();
 
         self.event_subscriptions
             .listen_events(self.chain_id(), event_pool_clone);
 
-        self.grouping_start(g_type);
+        self.grouping_start(g_type,channels);
     }
 
-    pub fn grouping_start(&mut self, g_type: GroupingType) {
+    pub fn grouping_start(&mut self, g_type: GroupingType, channels: Arc<RwLock<ChannelPool>>) {
         let ep = self.event_pool.clone();
-
+        let cp = channels.clone();
         tokio::spawn(async move {
             loop {
                 println!("Start Grouping");
@@ -93,29 +99,54 @@ impl ChainManager {
                     let mut groups: Vec<CTXGroup> = vec![];
 
                     match g_type {
-                        GroupingType::NonGrouping => {},
-                        GroupingType::Random => events.shuffle(&mut thread_rng()),
-                        GroupingType::ClusterGrouping => {},
-                        GroupingType::None => {},
-                    }
+                        GroupingType::NonGrouping => {
+                            loop {
+                                let mut new_group = vec![];
+                                if events.len() > group_size {
+                                    new_group = events.drain(..group_size).collect::<CTXGroup>();
+                                    groups.push(new_group.clone());
+                                    // println!("200:{:?}", new_group);
+                                } else {
+                                    new_group = events.drain(..).collect::<CTXGroup>();
+                                    groups.push(new_group.clone());
 
-                    loop {
-                        let mut new_group = vec![];
-                        if events.len() > group_size {
-                            new_group = events.drain(..group_size).collect::<CTXGroup>();
-                            groups.push(new_group.clone());
-                            // println!("200:{:?}", new_group);
-                        } else {
-                            new_group = events.drain(..).collect::<CTXGroup>();
-                            groups.push(new_group.clone());
-
-                            ep.write().await.get_ibc_events_class_mut().remove(c);
-                            // println!("小于200:{:?}", new_group);
-                            break;
+                                    ep.write().await.get_ibc_events_class_mut().remove(c);
+                                    // println!("小于200:{:?}", new_group);
+                                    break;
+                                }
+                            }
                         }
+                        GroupingType::Random => {
+                            events.shuffle(&mut thread_rng());
+                            loop {
+                                let mut new_group = vec![];
+                                if events.len() > group_size {
+                                    new_group = events.drain(..group_size).collect::<CTXGroup>();
+                                    groups.push(new_group.clone());
+                                    // println!("200:{:?}", new_group);
+                                } else {
+                                    new_group = events.drain(..).collect::<CTXGroup>();
+                                    groups.push(new_group.clone());
+
+                                    ep.write().await.get_ibc_events_class_mut().remove(c);
+                                    // println!("小于200:{:?}", new_group);
+                                    break;
+                                }
+                            }
+                        }
+                        GroupingType::ClusterGrouping => {
+                            let (_, height, channelkey) = c;
+                            let channelop = cp.read().await.query_channel_by_key(&channelkey);
+                            groups =
+                                make_groups(events, height, channelop, group_size)
+                                    .await;
+                            ep.write().await.get_ibc_events_class_mut().remove(c);
+                        }
+                        GroupingType::None => {}
                     }
 
-                    println!("groups_num: {}", groups.len());
+                    // ep.write().await.get_ibc_events_class_mut().remove(c);
+                    println!("我来了我来了我来了我来了我来了groups_num: {}", groups.len());
 
                     ep.write().await.update_ctx_pending_groups(c, groups);
                 }
@@ -164,7 +195,8 @@ impl ChainManager {
                                         send_packet.packet,
                                         event_with_height.height,
                                         completed_txs_clone,
-                                    ).await;
+                                    )
+                                    .await;
                                 }
                                 Err(e) => {
                                     eprintln!("channel read error: {:?}", e);
@@ -284,7 +316,6 @@ impl ChainManager {
         let chain_id = self.chain_id();
         tokio::spawn(async move {
             loop {
-                // println!("LOOPLOOP!");
                 let channel_keys = channels.read().await.all_channel_keys();
                 for k in channel_keys {
                     // let events = ep
@@ -351,7 +382,8 @@ impl ChainManager {
                                 chan.flipped(),
                                 events,
                                 completed_txs.clone(),
-                            ).await;
+                            )
+                            .await;
                         }
                         Err(e) => {
                             eprintln!("channel read error: {:?}", e);
@@ -373,7 +405,6 @@ async fn send_packet_aggregate_handler_task(
     completed_txs: Arc<RwLock<Vec<TxEventsWithHeightAndGasUsed>>>,
 ) {
     let height = send_packet_events[0].height;
-
     let mut packets = vec![];
     for event in send_packet_events {
         // println!("+++++++++++++++++++++++++++++++++");
@@ -426,7 +457,10 @@ async fn send_aggregate_packet_handler_test(
                 p.packets.len(),
                 p.proof.len(),
             );
-            println!("Number of on-chain hash computations: aggre({:?})-old({:?})", hash_count, old_hash_count);
+            println!(
+                "Number of on-chain hash computations: aggre({:?})-old({:?})",
+                hash_count, old_hash_count
+            );
             println!("Aggregate_Packet_Size: {}", std::mem::size_of_val(&raw_p));
         }
         Err(e) => eprintln!("{}", e),
@@ -440,17 +474,7 @@ async fn send_aggregate_packet_handler(
 ) -> Result<Vec<TxEventsWithHeightAndGasUsed>, Error> {
     let target_signer = channel.target_chain().account().get_signer()?;
 
-    let msg_set_hash = channel.source_chain().bulid_msg_set_hash_value(&packets[0].clone(), &height, target_signer.clone()).await?;
-
-    let event_1 = channel
-        .target_chain()
-        .send_messages_and_wait_commit(msg_set_hash)
-        .await?;
-
-    println!("$$$$$$$$$$$$$$$$$$$$$$$$");
-    println!("SetHash: {:?}", event_1);
-
-    let start_time = Instant::now(); 
+    let start_time = Instant::now();
     let (a_packet, hash_count, old_hash_count) = channel
         .source_chain()
         .build_aggregate_packet(packets, target_signer, height)
@@ -464,7 +488,10 @@ async fn send_aggregate_packet_handler(
         raw_p.packets.len(),
         raw_p.proof.len()
     );
-    println!("Number of on-chain hash computations: aggre({:?})-old({:?})", hash_count, old_hash_count);
+    println!(
+        "Number of on-chain hash computations: aggre({:?})-old({:?})",
+        hash_count, old_hash_count
+    );
     println!("Aggregate_Packet_Size: {}", std::mem::size_of_val(&raw_p));
     println!("Build Aggregate Packet Duration: {}", d.as_millis());
 
@@ -685,9 +712,9 @@ pub mod chain_manager_tests {
 
         _ = cm
             .event_subscriptions
-            .init_subscriptions("ws://10.176.35.58:26656/websocket")
+            .init_subscriptions("ws://10.176.35.58:26659/websocket")
             .await;
-        cm.listen_events_start(GroupingType::NonGrouping);
+        // cm.listen_events_start(GroupingType::NonGrouping);
 
         cm.read().await;
         // cm.read_send_packet().await;
@@ -751,7 +778,7 @@ pub mod chain_manager_tests {
             .event_subscriptions
             .init_subscriptions("ws://127.0.0.1:26657/websocket")
             .await;
-        cm.listen_events_start(GroupingType::NonGrouping);
+        // cm.listen_events_start(GroupingType::NonGrouping);
 
         let channels = Arc::new(RwLock::new(channel_pool));
         let completed_txs = Arc::new(RwLock::new(vec![]));
@@ -811,7 +838,7 @@ pub mod chain_manager_tests {
             .event_subscriptions
             .init_subscriptions("ws://127.0.0.1:26657/websocket")
             .await;
-        cm.listen_events_start(GroupingType::NonGrouping);
+        // cm.listen_events_start(GroupingType::NonGrouping);
 
         let channels = Arc::new(RwLock::new(channel_pool));
         // println!("000000000000");

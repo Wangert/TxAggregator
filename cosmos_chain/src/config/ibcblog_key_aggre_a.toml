@@ -1,0 +1,5 @@
+name = "wjt"
+type = "local"
+address = "cosmos1ngr9pgcsl7cfmsemqtuw6g5ql0l6uau55j9hz8"
+pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"AkhkRezkHn5SiVx6H3xPMSdfiyae56oxunVWI66cMJRI\"}"
+mnemonic = "crop web rail theory power define orange upon erupt disagree turkey update eyebrow armor art bitter demise film silent sound outdoor baby brain remember"

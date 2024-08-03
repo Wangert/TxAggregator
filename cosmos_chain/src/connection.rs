@@ -1216,20 +1216,20 @@ pub mod connection_tests {
     pub fn connection_handshake_works() {
         init();
         let a_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
         let b_file_path =
-            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/mosaic_four_vals.toml";
+            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_b.toml";
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
 
         let mut connection_side_a = ConnectionSide::new(
             cosmos_chain_a,
-            ClientId::from_str("05-aggrelite-0").unwrap(),
+            ClientId::from_str("05-aggrelite-5").unwrap(),
         );
         let mut connection_side_b = ConnectionSide::new(
             cosmos_chain_b,
-            ClientId::from_str("05-aggrelite-0").unwrap(),
+            ClientId::from_str("05-aggrelite-5").unwrap(),
         );
 
         // connection_side_a.connection_id = Some(ConnectionId::from_str("connection-5").unwrap());

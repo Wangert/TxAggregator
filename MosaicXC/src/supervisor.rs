@@ -252,20 +252,29 @@ impl Supervisor {
             };
 
             if "mosaicxc".eq_ignore_ascii_case(mode) {
-                cm.init(url.as_str()).await;
-                cm.listen_events_start(g_type);
                 let channels = self.channel_pool.clone();
-                cm.events_aggregate_send_packet_handler(channels, self.completed_txs.clone());
+                cm.init(url.as_str()).await;
+                cm.listen_events_start(g_type,channels);
+                // let channels = self.channel_pool.clone();
+                // cm.init(url.as_str()).await;
+                // cm.listen_events_start(channels);
+                
+                cm.events_aggregate_send_packet_handler(self.channel_pool.clone(), self.completed_txs.clone());
             } else if "cosmosibc".eq_ignore_ascii_case(mode) {
-                cm.init(url.as_str()).await;
-                cm.listen_events_start(g_type);
                 let channels = self.channel_pool.clone();
-                cm.events_handler(channels, self.completed_txs.clone());
+                cm.init(url.as_str()).await;
+                cm.listen_events_start(g_type,channels);
+                // let channels = self.channel_pool.clone();
+                // cm.init(url.as_str()).await;
+                // cm.listen_events_start(channels);
+                
+                cm.events_handler(self.channel_pool.clone(), self.completed_txs.clone());
             } else {
                 println!("!!!!mode is not exist!!!!");
             }
         }
-    }
+        }
+    
 
     async fn cmd_match(&mut self, matches: &ArgMatches) -> Result<(), Error> {
         match matches.subcommand() {
@@ -494,7 +503,7 @@ impl Supervisor {
 
         Ok(())
     }
-}
+    }
 
 pub struct CreateChannelParams {
     pub chain_id: ChainId,

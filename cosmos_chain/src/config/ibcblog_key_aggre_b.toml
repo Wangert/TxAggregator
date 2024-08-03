@@ -1,0 +1,5 @@
+name = "wjt"
+type = "local"
+address = "cosmos1qdnnqs6y08cumxjv7zhxtu4w9a92fuqz4ds04y"
+pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"A/lTqm+TOiDExsHEPFzjFxB/cNZgLvZN4GOWfJ4iBUYv\"}"
+mnemonic = "lens plug bleak supply gun fog gospel slam dawn flower potato field aspect cost accident trade cause innocent stand ozone choose super episode switch"
