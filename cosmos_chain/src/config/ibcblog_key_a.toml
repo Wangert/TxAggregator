@@ -1,8 +1,0 @@
-name = "wjt"
-type = "local"
-# address = "cosmos1qjxsp8m9lp6q5xdzcqkvx4rmfj3qe4pyk2few7"
-# pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"A2SZquqS95z2n5606hioCUUUYIJxhY4AHloIVHvuVYEj\"}"
-# mnemonic = "hazard wolf pill smoke daughter update envelope furnace gasp room album foot eternal gown accuse lake glue ask bless scan pet stomach enemy design"
-address = "cosmos10p4cvz74h6rdla4myjh89cm5hm72tg3zmrara5"
-pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"An8bVnI1uIIHuizAHQA1MT7uYElv9TdsUuudrKxY5bUq\"}"
-mnemonic = "tribe name deal illegal burden frown split theory alert trial camera glass initial address dentist timber bubble recycle stumble sentence clap agent square host"
