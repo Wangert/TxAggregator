@@ -1,0 +1,5 @@
+name = "wjt"
+type = "local"
+address = "cosmos1s5490zkenxngy0zk6wxmtxf7hvxe38qvua6rsz"
+pubkey = "{\"@type\":\"/cosmos.crypto.secp256k1.PubKey\",\"key\":\"A6D+LKIPat1dJo4L/ckrTRkYkDzEpw5opqnRQcuxRhfh\"}"
+mnemonic = "impact belt inform round suit own artwork machine innocent child fitness twist pilot repeat tissue fury ensure caught trash must hurry during cinnamon hole"

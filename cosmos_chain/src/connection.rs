@@ -502,8 +502,8 @@ impl Connection {
 
             // send the OpenTry message to chain b (target)
             (State::Init, State::Uninitialized) => {
-                info!("send a OpenInit message");
-                println!("send a OpenInit message");
+                info!("send a OpenTry message");
+                println!("send a OpenTry message");
                 let event = self.build_connection_open_try_and_send().await?;
 
                 let connection_id =
@@ -697,6 +697,8 @@ impl Connection {
             .connection_id()
             .ok_or_else(Error::empty_connection_id)?;
 
+        println!("*************************************");
+
         let (src_connection, _) = self
             .source_chain()
             .query_connection(&src_connection_id, QueryHeight::Latest, false)
@@ -719,6 +721,7 @@ impl Connection {
 
         // Build add send the message(s) for updating client on source
         let src_client_target_height = self.target_chain().query_latest_height().await?;
+        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
         let update_client_msgs = self
             .build_update_client_on_source_chain(src_client_target_height)
             .await?;
@@ -728,6 +731,7 @@ impl Connection {
         self.source_chain()
             .send_messages_and_wait_commit(update_client_msgs)
             .await?;
+
 
         let query_height = self.source_chain().query_latest_height().await?;
         let (client_state, proofs) = self
@@ -1216,20 +1220,20 @@ pub mod connection_tests {
     pub fn connection_handshake_works() {
         init();
         let a_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/srxc_chain_1.toml";
         let b_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_b.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/srxc_chain_1.toml";
 
         let cosmos_chain_a = CosmosChain::new(a_file_path);
         let cosmos_chain_b = CosmosChain::new(b_file_path);
 
         let mut connection_side_a = ConnectionSide::new(
             cosmos_chain_a,
-            ClientId::from_str("05-aggrelite-5").unwrap(),
+            ClientId::from_str("07-tendermint-0").unwrap(),
         );
         let mut connection_side_b = ConnectionSide::new(
             cosmos_chain_b,
-            ClientId::from_str("05-aggrelite-5").unwrap(),
+            ClientId::from_str("07-tendermint-1").unwrap(),
         );
 
         // connection_side_a.connection_id = Some(ConnectionId::from_str("connection-5").unwrap());

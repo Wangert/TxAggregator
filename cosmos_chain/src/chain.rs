@@ -653,19 +653,41 @@ impl CosmosChain {
         // let latest_block_results = self.query_latest_block_results().await?;
 
         loop {
-            if let Ok(latest_block_results) = self.query_latest_block_results().await {
-                if let Ok(block) = self.query_block(latest_block_results.height).await {
-                    let revision_number = ChainId::chain_version(block.header.chain_id.as_str());
-                    let revision_height = u64::from(latest_block_results.height);
+            if let Ok(latest_block) = self.query_latest_block().await {
+                
+                    let revision_number = ChainId::chain_version(latest_block.header.chain_id.as_str());
+                    let revision_height = u64::from(latest_block.header.height);
 
                     h = Height::new(revision_number, revision_height).map_err(Error::type_error)?;
+
                     break;
-                }
+        
             }
         }
 
         Ok(h)
     }
+
+    // pub async fn query_latest_height(&self) -> Result<Height, Error> {
+    //     let mut h = Height::new(1, 1).unwrap();
+    //     // let latest_block_results = self.query_latest_block_results().await?;
+
+    //     loop {
+    //         if let Ok(latest_block_results) = self.query_latest_block_results().await {
+    //             println!("First");
+    //             if let Ok(header) = self.query_block_header(latest_block_results.height).await {
+    //                 println!("Second");
+    //                 let revision_number = ChainId::chain_version(header.chain_id.as_str());
+    //                 let revision_height = u64::from(latest_block_results.height);
+
+    //                 h = Height::new(revision_number, revision_height).map_err(Error::type_error)?;
+    //                 break;
+    //             }
+    //         }
+    //     }
+
+    //     Ok(h)
+    // }
 
     pub async fn query_client_consensus_state(
         &self,
@@ -1941,9 +1963,9 @@ pub mod chain_tests {
     pub fn create_client_works() {
         init();
         let a_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/srxc_chain_1.toml";
         let b_file_path =
-            "C:/Users/admin/Documents/GitHub/TxAggregator/cosmos_chain/src/config/chain_aggre_config_a.toml";
+            "/Users/wangert/rust_projects/TxAggregator/cosmos_chain/src/config/srxc_chain_1.toml";
 
         let cosmos_chain_a = CosmosChain::new(b_file_path);
         let cosmos_chain_b = CosmosChain::new(a_file_path);

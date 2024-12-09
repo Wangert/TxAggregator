@@ -45,6 +45,9 @@ tracing = "0.1.37"
 actix-rt = "2.8.0"
 console_error_panic_hook = "0.1.7"
 
+# [dependencies.tendermint-rpc]
+# version = "0.40.0"
+# features = ["http-client", "websocket-client"]
 [dependencies.tendermint-rpc]
 version = "0.34.1"
 features = ["http-client", "websocket-client"]
